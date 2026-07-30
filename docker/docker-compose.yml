@@ -1,0 +1,25 @@
+# docker-compose.yml
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: onyx_db
+    env_file:
+      - ../.env
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: onyx_redis
+    env_file:
+      - ../.env
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+volumes:
+  postgres_data:
+  redis_data:
