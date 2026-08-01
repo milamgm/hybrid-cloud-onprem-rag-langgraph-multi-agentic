@@ -14,10 +14,11 @@ from langchain_postgres import SQLRecordManager
 # enabling incremental upserts without duplicates.
 _CHUNK_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
+
 def stable_chunk_id(source: str, content: str) -> str:
     """Generates a deterministic UUID based on document source and chunk content.
 
-    Uses uuid5 (SHA-1 based) to ensure the exact same chunk always receives the 
+    Uses uuid5 (SHA-1 based) to ensure the exact same chunk always receives the
     same ID, enabling idempotent upserts in vector databases.
     """
     h = hashlib.sha256(f"{source}:{content}".encode("utf-8")).hexdigest()[:32]
@@ -25,6 +26,7 @@ def stable_chunk_id(source: str, content: str) -> str:
 
 
 # ── Hybrid Indexer (pgvector + FTS with SQLRecordManager Tracking) ─────
+
 
 class HybridIndexer:
     """Indexer combining pgvector + Postgres FTS with native RRF and tracking.
@@ -91,7 +93,9 @@ class HybridIndexer:
             )
         except Exception as e:
             if "already exists" in str(e).lower():
-                print(f"[indexers] Table '{table_name}' already exists, reusing infrastructure.")
+                print(
+                    f"[indexers] Table '{table_name}' already exists, reusing infrastructure."
+                )
             else:
                 raise
 
@@ -116,8 +120,7 @@ class HybridIndexer:
 
         # Configure the professional SQLRecordManager to prevent duplicate embeddings
         self._record_manager = SQLRecordManager(
-            namespace=f"pgvector/{self._table_name}",
-            db_url=self._connection_string
+            namespace=f"pgvector/{self._table_name}", db_url=self._connection_string
         )
         self._record_manager.create_schema()
 
@@ -125,15 +128,14 @@ class HybridIndexer:
     def add_documents(self, documents: list[Document]) -> dict:
         """Upserts documents into pgvector and tracks state via SQLRecordManager.
 
-        Calculates content hashes dynamically. Automatically handles garbage collection 
+        Calculates content hashes dynamically. Automatically handles garbage collection
         by deleting stale chunks and completely avoids redundant embedding API calls.
         """
         # Inject deterministic chunk IDs into metadata for tracking consistency
         for doc in documents:
             if "chunk_id" not in doc.metadata:
                 doc.metadata["chunk_id"] = stable_chunk_id(
-                    doc.metadata.get("source", "Unknown"), 
-                    doc.page_content
+                    doc.metadata.get("source", "Unknown"), doc.page_content
                 )
 
         # Execute LangChain's industry-standard high-level indexing API
@@ -142,7 +144,7 @@ class HybridIndexer:
             record_manager=self._record_manager,
             vector_store=self._store,
             cleanup="incremental",  # Cleans up old chunks if the source document gets updated
-            source_id_key="source"  # Uses the source metadata attribute as the logical document tracking key
+            source_id_key="source",  # Uses the source metadata attribute as the logical document tracking key
         )
         return indexing_result
 
@@ -176,8 +178,7 @@ class HybridIndexer:
             query, k=top_k, hybrid_search_config=self._hybrid_config
         )
         return [
-            (doc.metadata.get("chunk_id", ""), float(score))
-            for doc, score in results
+            (doc.metadata.get("chunk_id", ""), float(score)) for doc, score in results
         ]
 
     def search_documents(self, query: str, top_k: int = 5) -> list[Document]:
