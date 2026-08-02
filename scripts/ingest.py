@@ -1,19 +1,28 @@
+"""Document ingestion pipeline: load, chunk, and sync into the vector index.
+
+Usage:
+    python -m scripts.ingest <file_or_directory> [...] [--dry-run]
+
+Each source file is indexed as its own transaction. That keeps memory bounded
+on large corpora and, more importantly, makes the run resumable: a provider
+outage on file 40 does not discard the work already committed for files 1-39,
+and re-running skips them via the record manager's content hashes.
+"""
+
 import os
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# Must precede any torch import: caps fragmentation during Docling's GPU passes.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-import sys
+import argparse
 import logging
+import sys
 from pathlib import Path
-from typing import List
 
-from langchain_core.documents import Document
+from src.config.config import get_indexer, get_tokenizer
+from src.rag.loaders import SUPPORTED_EXTENSIONS, load_any
+from src.rag.splitters import chunk_document
 
-from src.config.config import get_indexer, EMBEDDINGS
-from src.rag.splitters import chunk_documents
-from src.rag.loaders import load_any
-
-# Initialize system logger using strict console formatting
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -22,123 +31,134 @@ logging.basicConfig(
 logger = logging.getLogger("pipeline.ingest")
 
 
-def collect_target_files(paths: List[str]) -> List[Path]:
-    """Scans provided paths and collects files matching corporate extensions."""
-    supported_extensions = {".pdf", ".html", ".htm", ".xlsx", ".docx", ".pptx"}
-    resolved_files: List[Path] = []
+def collect_target_files(paths: list[str]) -> list[Path]:
+    """Resolves paths into a sorted, deduplicated list of ingestible files."""
+    resolved: set[Path] = set()
 
     for path_str in paths:
-        target_path = Path(path_str)
-        if target_path.is_dir():
-            logger.info(f"Scanning target directory: {target_path.resolve()}")
-            resolved_files.extend(
+        target = Path(path_str)
+        if target.is_dir():
+            logger.info(f"Scanning directory: {target.resolve()}")
+            resolved.update(
                 file
-                for file in target_path.rglob("*")
-                if file.suffix.lower() in supported_extensions
+                for file in target.rglob("*")
+                if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS
             )
-        elif target_path.is_file():
-            if target_path.suffix.lower() in supported_extensions:
-                resolved_files.append(target_path)
+        elif target.is_file():
+            if target.suffix.lower() in SUPPORTED_EXTENSIONS:
+                resolved.add(target)
             else:
-                logger.warning(
-                    f"Skipping unsupported file extension: {target_path.name}"
-                )
+                logger.warning(f"Skipping unsupported extension: {target.name}")
         else:
-            logger.error(f"Provided path descriptor does not exist: {path_str}")
+            logger.error(f"Path does not exist: {path_str}")
 
-    return resolved_files
+    return sorted(resolved)
 
 
-def run_ingestion(paths: List[str]) -> int:
-    """Orchestrates document loading, text splitting, and index synchronization."""
-    indexer = get_indexer()
-    global_document_pool: List[Document] = []
+def ingest_file(file_path: Path, indexer, tokenizer, dry_run: bool = False) -> dict:
+    """Loads, chunks, and indexes a single file. Returns its sync metrics."""
+    empty = {"num_added": 0, "num_updated": 0, "num_skipped": 0, "num_deleted": 0}
 
-    target_files = collect_target_files(paths)
-    if not target_files:
-        logger.error("Ingestion sequence aborted: Zero valid files discovered.")
-        return 0
-
-    # Stage 1: Parse and load file nodes into raw document objects
-    for file_path in target_files:
-        try:
-            logger.info(f"Parsing storage node: {file_path.name}")
-            parsed_documents = load_any(file_path)
-            if not parsed_documents:
-                logger.warning(f"File node parsed as empty matrix: {file_path.name}")
-                continue
-
-            logger.info(
-                f"Successfully loaded {len(parsed_documents)} document object nodes."
-            )
-
-            # Stage 2: Semantic chunking using the same embeddings model
-            chunked_segments = chunk_documents(parsed_documents, embeddings=EMBEDDINGS)
-            logger.info(
-                f"Transformed document metrics: {len(chunked_segments)} atomic chunks generated."
-            )
-            global_document_pool.extend(chunked_segments)
-        except Exception as error:
-            logger.error(
-                f"Critical failure processing node {file_path.name}: {str(error)}"
-            )
-            continue
-
-    if not global_document_pool:
-        logger.error(
-            "Pipeline halted: No available chunks ready for database synchronization."
-        )
-        return 0
-
-    # Stage 3: Audit trail metadata normalization
-    for chunk in global_document_pool:
-        if "source" not in chunk.metadata:
-            chunk.metadata["source"] = "unknown_origin"
+    logger.info(f"Loading: {file_path.name}")
+    parsed = load_any(file_path)
+    if parsed.is_empty:
+        logger.warning(f"No extractable content in {file_path.name}; skipping.")
+        return empty
 
     logger.info(
-        f"Initiating transactional sync for {len(global_document_pool)} records..."
+        f"Parsed {file_path.name} "
+        f"({'structured' if parsed.is_structured else 'text-only fallback'})."
     )
 
-    # Stage 4: Commit records via the underlying tracking indexer
+    chunks = chunk_document(parsed, tokenizer)
+    if not chunks:
+        logger.warning(f"Chunking produced nothing for {file_path.name}; skipping.")
+        return empty
+
+    # The record manager keys incremental cleanup off this field, so a chunk
+    # without it would be untrackable.
+    for chunk in chunks:
+        chunk.metadata.setdefault("source", str(file_path))
+
+    if dry_run:
+        logger.info(f"[dry-run] Would index {len(chunks)} chunk(s).")
+        return empty
+
+    metrics = indexer.add_documents(chunks)
+    logger.info(
+        f"Synced {file_path.name} -> "
+        f"added={metrics.get('num_added', 0)} "
+        f"updated={metrics.get('num_updated', 0)} "
+        f"skipped={metrics.get('num_skipped', 0)} "
+        f"deleted={metrics.get('num_deleted', 0)}"
+    )
+    return metrics
+
+
+def run_ingestion(paths: list[str], dry_run: bool = False) -> int:
+    """Ingests every discovered file. Returns the count of added/updated chunks."""
+    target_files = collect_target_files(paths)
+    if not target_files:
+        logger.error("Aborting: no ingestible files found.")
+        return 0
+
+    logger.info(f"Discovered {len(target_files)} file(s) to ingest.")
+
+    # Chunking needs only the tokenizer. The embedding client is built lazily by
+    # get_indexer(), so a --dry-run never touches the embedding provider at all.
+    tokenizer = get_tokenizer()
+    indexer = None if dry_run else get_indexer()
+
+    totals = {"num_added": 0, "num_updated": 0, "num_skipped": 0, "num_deleted": 0}
+    failed: list[str] = []
+
+    for position, file_path in enumerate(target_files, start=1):
+        logger.info(f"── [{position}/{len(target_files)}] {file_path.name} ──")
+        try:
+            metrics = ingest_file(file_path, indexer, tokenizer, dry_run=dry_run)
+            for key in totals:
+                totals[key] += metrics.get(key, 0)
+        except Exception as error:
+            # One bad file must not sink the run; committed files stay committed.
+            logger.exception(f"Failed to ingest {file_path.name}: {error}")
+            failed.append(file_path.name)
+
+    logger.info(
+        f"Totals -> added={totals['num_added']} updated={totals['num_updated']} "
+        f"skipped={totals['num_skipped']} deleted={totals['num_deleted']}"
+    )
+    if failed:
+        logger.warning(f"{len(failed)} file(s) failed: {', '.join(failed)}")
+
+    return totals["num_added"] + totals["num_updated"]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m scripts.ingest",
+        description="Load, chunk, and index documents into the vector store.",
+    )
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        help="Files or directories to ingest (directories are scanned recursively).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Load and chunk without writing to the index.",
+    )
+    args = parser.parse_args()
+
     try:
-        sync_metrics = indexer.add_documents(global_document_pool)
-        logger.info("Database synchronization completed successfully.")
-        logger.info(
-            f"Metrics -> Added: {sync_metrics.get('num_added', 0)} | "
-            f"Updated: {sync_metrics.get('num_updated', 0)} | "
-            f"Skipped: {sync_metrics.get('num_skipped', 0)} | "
-            f"Deleted: {sync_metrics.get('num_deleted', 0)}"
-        )
-        return sync_metrics.get("num_added", 0) + sync_metrics.get("num_updated", 0)
-    except Exception as network_error:
-        logger.critical(
-            f"Database transaction aborted due to network or constraint anomalies: {str(network_error)}"
-        )
-        raise network_error
+        synced = run_ingestion(args.paths, dry_run=args.dry_run)
+    except Exception as error:
+        logger.critical(f"Ingestion aborted: {error}", exc_info=error)
+        return 1
+
+    logger.info(f"Ingestion complete. {synced} chunk(s) added or updated.")
+    return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        logger.error("Syntax Error: Insufficient parameters.")
-        print("Usage: python -m scripts.ingest <file_or_directory_path> [...]")
-        sys.exit(1)
-
-    execution_arguments = sys.argv[1:]
-
-    # Drop legacy cleanup flags safely
-    if "--cleanup" in execution_arguments:
-        flag_index = execution_arguments.index("--cleanup")
-        execution_arguments = (
-            execution_arguments[:flag_index] + execution_arguments[flag_index + 2 :]
-        )
-
-    try:
-        total_synchronized = run_ingestion(execution_arguments)
-        logger.info(
-            f"Pipeline successfully terminated. Clean sync count: {total_synchronized} nodes updated."
-        )
-    except Exception as runtime_error:
-        logger.critical(
-            f"Process abnormally terminated via fatal execution signal: {str(runtime_error)}"
-        )
-        sys.exit(1)
+    sys.exit(main())

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import Sequence
 
+from langchain_classic.indexes import SQLRecordManager
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.indexing import index
-from langchain_classic.indexes import SQLRecordManager
+
+from src.config.config import PG_CONNECTION, VECTOR_SIZE
 
 # Fixed namespace for generating deterministic UUIDs (uuid5).
 # This guarantees that re-ingesting the same chunk produces the same ID,
@@ -21,7 +22,7 @@ def stable_chunk_id(source: str, content: str) -> str:
     Uses uuid5 (SHA-1 based) to ensure the exact same chunk always receives the
     same ID, enabling idempotent upserts in vector databases.
     """
-    h = hashlib.sha256(f"{source}:{content}".encode("utf-8")).hexdigest()[:32]
+    h = hashlib.sha256(f"{source}:{content}".encode()).hexdigest()[:32]
     return str(uuid.uuid5(_CHUNK_NAMESPACE, f"{source}:{h}"))
 
 
@@ -42,9 +43,14 @@ class HybridIndexer:
     Tracks document state incrementally using SQLRecordManager.
 
     Usage:
-        indexer = HybridIndexer(embeddings=..., connection_string="...")
+        indexer = HybridIndexer(embeddings=get_embeddings())
         indexer.add_documents(chunks)              # Incremental smart upsert
         results = indexer.search(query, top_k=5)   # Hybrid RRF search
+
+    Note:
+        Not yet wired into the ingest pipeline, which uses the dense-only
+        indexer from :func:`src.config.config.get_indexer`. This class writes to
+        its own table, so switching over requires a full re-ingest.
     """
 
     TABLE_NAME = "rag_documents"
@@ -53,10 +59,16 @@ class HybridIndexer:
     def __init__(
         self,
         embeddings: Embeddings,
-        connection_string: str = "postgresql+psycopg://my_user:my_password@localhost:5432/langgraph_db",
+        connection_string: str | None = None,
         table_name: str = TABLE_NAME,
-        vector_size: int = 1024,
+        vector_size: int | None = None,
     ):
+        # Defaults come from the environment-driven config, never from literals:
+        # a hardcoded DSN leaks credentials and silently drifts from the
+        # deployment the rest of the pipeline talks to.
+        connection_string = connection_string or PG_CONNECTION
+        vector_size = vector_size if vector_size is not None else VECTOR_SIZE
+
         from langchain_postgres.v2.engine import PGEngine
         from langchain_postgres.v2.hybrid_search_config import (
             HybridSearchConfig,
