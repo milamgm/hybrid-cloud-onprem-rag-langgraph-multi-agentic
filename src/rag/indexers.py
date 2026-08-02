@@ -7,7 +7,7 @@ from typing import Sequence
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.indexing import index
-from langchain_postgres import SQLRecordManager
+from langchain_classic.indexes import SQLRecordManager
 
 # Fixed namespace for generating deterministic UUIDs (uuid5).
 # This guarantees that re-ingesting the same chunk produces the same ID,
@@ -34,7 +34,7 @@ class HybridIndexer:
     A single Postgres table containing:
       - langchain_id        UUID PRIMARY KEY
       - content             TEXT
-      - embedding           vector(768)
+      - embedding           vector(1024)
       - langchain_metadata  JSONB
       - tsv                 tsvector (automatically generated via trigger)
 
@@ -55,6 +55,7 @@ class HybridIndexer:
         embeddings: Embeddings,
         connection_string: str = "postgresql+psycopg://my_user:my_password@localhost:5432/langgraph_db",
         table_name: str = TABLE_NAME,
+        vector_size: int = 1024,
     ):
         from langchain_postgres.v2.engine import PGEngine
         from langchain_postgres.v2.hybrid_search_config import (
@@ -66,6 +67,7 @@ class HybridIndexer:
         self._embeddings = embeddings
         self._connection_string = connection_string
         self._table_name = table_name
+        self._vector_size = vector_size
 
         # Hybrid search config: RRF with tsvector mapped to the 'tsv' column
         self._hybrid_config = HybridSearchConfig(
@@ -86,7 +88,7 @@ class HybridIndexer:
         try:
             self._engine.init_vectorstore_table(
                 table_name=table_name,
-                vector_size=768,  # Optimized for nomic-embed-text or similar 768-dim models
+                vector_size=self._vector_size,  # 1024 for bge-m3, 3072 for text-embedding-3-large
                 id_column="langchain_id",
                 hybrid_search_config=self._hybrid_config,
                 overwrite_existing=False,
