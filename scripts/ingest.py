@@ -1,3 +1,7 @@
+import os
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 import sys
 import logging
 from pathlib import Path
@@ -5,7 +9,7 @@ from typing import List
 
 from langchain_core.documents import Document
 
-from src.config.config import get_indexer
+from src.config.config import get_indexer, EMBEDDINGS
 from src.rag.splitters import chunk_documents
 from src.rag.loaders import load_any
 
@@ -68,8 +72,8 @@ def run_ingestion(paths: List[str]) -> int:
                 f"Successfully loaded {len(parsed_documents)} document object nodes."
             )
 
-            # Stage 2: Tokenize and split raw texts into clean semantic chunks
-            chunked_segments = chunk_documents(parsed_documents)
+            # Stage 2: Semantic chunking using the same embeddings model
+            chunked_segments = chunk_documents(parsed_documents, embeddings=EMBEDDINGS)
             logger.info(
                 f"Transformed document metrics: {len(chunked_segments)} atomic chunks generated."
             )
