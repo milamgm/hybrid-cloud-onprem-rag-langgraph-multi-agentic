@@ -1,0 +1,65 @@
+[
+  {
+    "question": "What is a business case and why should an organization develop one?",
+    "relevant_sources": ["Business_Case_Development_and_Analysis.pdf"],
+    "notes": "Plain topical question. Should be easy for the dense arm."
+  },
+  {
+    "question": "difference between deterministic and stochastic financial analysis",
+    "relevant_sources": ["Business_Case_Development_and_Analysis.pdf"],
+    "notes": "Exact terminology from section 7. Tests the BM25 arm on low-frequency terms."
+  },
+  {
+    "question": "How do you frame the problem before deciding on an investment?",
+    "relevant_sources": ["Business_Case_Development_and_Analysis.pdf"],
+    "notes": "Paraphrase: the source says 'framing the problem and decision'. No shared rare terms, so this leans on dense retrieval."
+  },
+  {
+    "question": "What artifacts and tools support building a business case?",
+    "relevant_sources": ["Business_Case_Development_and_Analysis.pdf"],
+    "notes": "Target content lives in a table, so this checks that table rows survived chunking as retrievable units."
+  },
+  {
+    "question": "What components go into a business case presentation?",
+    "relevant_sources": ["Business_Case_Development_and_Analysis.pdf"],
+    "notes": "Sections 8 and 9 are adjacent and similar; tests that the reranker picks the presentation one over the document one."
+  },
+  {
+    "question": "PepsiCo competitive strategy analysis",
+    "relevant_sources": ["STRATEGIC_MANAGEMENT_FINAL_PAPER_PEPSICO.pdf"],
+    "notes": "Proper noun. BM25 should nail this; a purely dense system may drift to the other strategy document."
+  },
+  {
+    "question": "How does the beverage company position itself against its main rival?",
+    "relevant_sources": ["STRATEGIC_MANAGEMENT_FINAL_PAPER_PEPSICO.pdf"],
+    "notes": "Same target as above with the proper noun removed. Isolates the dense arm."
+  },
+  {
+    "question": "What are the strengths and weaknesses identified in the SWOT analysis?",
+    "relevant_sources": ["STRATEGIC_MANAGEMENT_FINAL_PAPER_PEPSICO.pdf"],
+    "notes": "Standard framework term likely present verbatim."
+  },
+  {
+    "question": "knowledge management in the aerospace industry",
+    "relevant_sources": ["Strategic_knowledge_management_in_aerosp.pdf"],
+    "notes": "Direct topical match."
+  },
+  {
+    "question": "How do engineering firms retain expertise when senior staff retire?",
+    "relevant_sources": ["Strategic_knowledge_management_in_aerosp.pdf"],
+    "notes": "Paraphrase of tacit-knowledge retention. No shared keywords with the title."
+  },
+  {
+    "question": "What is the difference between tacit and explicit knowledge?",
+    "relevant_sources": ["Strategic_knowledge_management_in_aerosp.pdf"],
+    "notes": "Core KM terminology."
+  },
+  {
+    "question": "How is strategy formulated and turned into concrete decisions?",
+    "relevant_sources": [
+      "STRATEGIC_MANAGEMENT_FINAL_PAPER_PEPSICO.pdf",
+      "Strategic_knowledge_management_in_aerosp.pdf"
+    ],
+    "notes": "Deliberately ambiguous across two documents. Recall should find both; MRR alone would hide a miss on the second."
+  }
+]

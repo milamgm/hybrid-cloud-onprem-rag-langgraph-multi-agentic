@@ -55,9 +55,11 @@ def _env_float(name: str, default: float) -> float:
 # at https://aka.ms/oai/quotaincrease rather than pushing this value past it.
 EMBEDDINGS_REQUESTS_PER_SECOND = _env_float("EMBEDDINGS_REQUESTS_PER_SECOND", 1.0)
 
-# Inputs per request. Bounds the tokens in flight so one batch cannot exhaust
-# the tokens-per-minute window by itself.
-EMBEDDINGS_BATCH_SIZE = _env_int("EMBEDDINGS_BATCH_SIZE", 128)
+# Inputs per request. This governs feasibility, not merely throughput: a single
+# request whose token count exceeds the per-minute quota can never succeed, no
+# matter how long the client backs off. Keep batch_size * avg tokens per chunk
+# comfortably below the deployment's TPM.
+EMBEDDINGS_BATCH_SIZE = _env_int("EMBEDDINGS_BATCH_SIZE", 16)
 
 EMBEDDINGS_MAX_RETRIES = _env_int("EMBEDDINGS_MAX_RETRIES", 6)
 EMBEDDINGS_TIMEOUT = _env_float("EMBEDDINGS_TIMEOUT", 120.0)
@@ -79,6 +81,27 @@ ONPREM_EMBEDDING_MODEL = "BAAI/bge-m3"
 # ranks better than a page holding six, because its vector is not an average of
 # unrelated content. 400-512 is the current consensus starting point.
 MAX_CHUNK_TOKENS = _env_int("MAX_CHUNK_TOKENS", 512)
+
+# ── Retrieval ─────────────────────────────────────────────────
+# Postgres text-search configuration for the BM25 arm. It governs stemming and
+# stop words, so it must match the corpus language: 'english' will not stem
+# Spanish, silently degrading keyword recall on a Spanish corpus.
+FTS_LANGUAGE = os.getenv("FTS_LANGUAGE", "pg_catalog.english")
+
+# Documents handed to the caller.
+RETRIEVER_K = _env_int("RETRIEVER_K", 5)
+
+# Candidates pulled from the index before reranking. Generous on purpose: the
+# reranker can only reorder what recall retrieved, so a relevant chunk missing
+# here is lost permanently.
+RETRIEVER_FETCH_K = _env_int("RETRIEVER_FETCH_K", 50)
+
+# Cross-encoder that rescores (query, document) pairs. bge-reranker-v2-m3 is the
+# companion model to bge-m3 and is multilingual. It runs locally in both
+# infrastructure modes -- it is small, and keeping it off the metered endpoint
+# means reranking costs no API quota.
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 
 VECTOR_SIZE = (
     CLOUD_EMBEDDING_DIMENSIONS
@@ -225,69 +248,65 @@ _indexer = None
 
 
 def get_indexer():
-    """Returns the tracked indexer singleton backed by pgvector.
-
-    Wraps LangChain's :func:`~langchain_core.indexing.index` API with a
-    :class:`SQLRecordManager`, so re-ingesting an unchanged document skips the
-    embedding calls entirely instead of paying for them again.
-    """
+    """Returns the hybrid indexer singleton (dense vectors + full-text search)."""
     global _indexer
     if _indexer is None:
-        from langchain_classic.indexes import SQLRecordManager
-        from langchain_core.indexing import index
-        from langchain_postgres.v2.engine import PGEngine
-        from langchain_postgres.v2.vectorstores import PGVectorStore
+        from src.rag.indexers import HybridIndexer
 
-        embeddings = get_embeddings()
-
-        # PGEngine runs on SQLAlchemy's async stack and needs an async driver.
-        pg_async_connection = PG_CONNECTION.replace(
-            "postgresql+psycopg://", "postgresql+psycopg_async://"
-        )
-        engine = PGEngine.from_connection_string(pg_async_connection)
-
-        # init_vectorstore_table has no IF NOT EXISTS clause, so a pre-existing
-        # table surfaces as a constraint error we can safely absorb.
-        try:
-            engine.init_vectorstore_table(
-                table_name=TABLE_NAME,
-                vector_size=VECTOR_SIZE,
-            )
-        except Exception as error:
-            if "already exists" not in str(error).lower():
-                raise
-            logger.info(f"Reusing existing vector table '{TABLE_NAME}'.")
-
-        vector_store = PGVectorStore.create_sync(
-            engine=engine,
+        _indexer = HybridIndexer(
+            embeddings=get_embeddings(),
+            connection_string=PG_CONNECTION,
             table_name=TABLE_NAME,
-            embedding_service=embeddings,
+            vector_size=VECTOR_SIZE,
+            tsv_language=FTS_LANGUAGE,
+            candidate_pool=RETRIEVER_FETCH_K,
         )
-
-        record_manager = SQLRecordManager(
-            namespace=f"postgres/{TABLE_NAME}",
-            db_url=PG_CONNECTION,
-        )
-        record_manager.create_schema()
-
-        class TrackedIndexer:
-            """Adapter exposing the indexing API the ingest pipeline expects."""
-
-            def add_documents(self, documents) -> dict:
-                return index(
-                    documents,
-                    record_manager=record_manager,
-                    vector_store=vector_store,
-                    # Scoped per source_id present in the batch: stale chunks of
-                    # an updated document are removed, other sources untouched.
-                    cleanup="incremental",
-                    source_id_key="source",
-                )
-
-            @property
-            def store(self):
-                return vector_store
-
-        _indexer = TrackedIndexer()
 
     return _indexer
+
+
+# ── Reranker ──────────────────────────────────────────────────
+_reranker = None
+
+
+def get_reranker():
+    """Returns the cross-encoder singleton, or None when reranking is disabled.
+
+    Loaded lazily and kept process-wide: the model weights are hundreds of
+    megabytes and re-loading them per query would dominate latency.
+    """
+    global _reranker
+    if not RERANKER_ENABLED:
+        return None
+
+    if _reranker is None:
+        import torch
+        from sentence_transformers import CrossEncoder
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _reranker = CrossEncoder(RERANKER_MODEL, device=device)
+        logger.info(f"Reranker ready: {RERANKER_MODEL} on {device}")
+
+    return _reranker
+
+
+# ── Retriever ─────────────────────────────────────────────────
+def get_retriever(k: int | None = None, fetch_k: int | None = None, **kwargs):
+    """Builds the retrieval pipeline: hybrid recall, then cross-encoder rerank.
+
+    Args:
+        k: Documents returned. Defaults to ``RETRIEVER_K``.
+        fetch_k: Candidates retrieved before reranking. Defaults to
+            ``RETRIEVER_FETCH_K``.
+        **kwargs: Passed through to :class:`~src.rag.retriever.HybridRetriever`
+            (``score_threshold``, ``filter``).
+    """
+    from src.rag.retriever import HybridRetriever
+
+    return HybridRetriever(
+        indexer=get_indexer(),
+        reranker=get_reranker(),
+        k=k if k is not None else RETRIEVER_K,
+        fetch_k=fetch_k if fetch_k is not None else RETRIEVER_FETCH_K,
+        **kwargs,
+    )

@@ -1,6 +1,29 @@
+"""Hybrid index: dense vectors + Postgres full-text search in one table.
+
+**Why hybrid.** Dense retrieval matches meaning; it is what finds the paraphrase
+of a question. It is also unreliable on the exact tokens that matter most in
+corporate documents -- product codes, acronyms, part numbers, surnames -- because
+those carry little semantic signal and get averaged away in an embedding. BM25
+matches them exactly and cheaply. Running both and fusing the results recovers
+what either alone misses; published benchmarks put the lift around 7% NDCG over
+the better single retriever.
+
+**Why RRF and not score averaging.** BM25 scores are unbounded positive numbers;
+cosine similarity lives in [-1, 1]. Averaging them is meaningless -- whichever
+scale happens to be larger dominates the ranking. Reciprocal Rank Fusion throws
+the scores away and fuses on *rank* alone (``1 / (k + rank)`` summed across
+lists), which is scale-free and needs no tuning per corpus.
+
+This module is the **write path and the recall stage**. It owns the schema,
+the incremental upsert, and a raw hybrid search that returns a broad candidate
+pool. Narrowing that pool to a precise answer set is the retriever's job -- see
+:mod:`src.rag.retriever`.
+"""
+
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from langchain_classic.indexes import SQLRecordManager
@@ -8,67 +31,69 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.indexing import index
 
-from src.config.config import PG_CONNECTION, VECTOR_SIZE
+logger = logging.getLogger("pipeline.indexers")
 
-# Fixed namespace for generating deterministic UUIDs (uuid5).
-# This guarantees that re-ingesting the same chunk produces the same ID,
-# enabling incremental upserts without duplicates.
+# Fixed namespace for deterministic chunk UUIDs (uuid5): re-ingesting the same
+# chunk yields the same id, so upserts stay idempotent.
 _CHUNK_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
 
 def stable_chunk_id(source: str, content: str) -> str:
-    """Generates a deterministic UUID based on document source and chunk content.
-
-    Uses uuid5 (SHA-1 based) to ensure the exact same chunk always receives the
-    same ID, enabling idempotent upserts in vector databases.
-    """
-    h = hashlib.sha256(f"{source}:{content}".encode()).hexdigest()[:32]
-    return str(uuid.uuid5(_CHUNK_NAMESPACE, f"{source}:{h}"))
+    """Returns a deterministic UUID for a chunk, keyed by its source and text."""
+    digest = hashlib.sha256(f"{source}:{content}".encode()).hexdigest()[:32]
+    return str(uuid.uuid5(_CHUNK_NAMESPACE, f"{source}:{digest}"))
 
 
-# ── Hybrid Indexer (pgvector + FTS with SQLRecordManager Tracking) ─────
+class SchemaMismatchError(RuntimeError):
+    """Raised when the target table cannot hold what this indexer writes."""
 
 
 class HybridIndexer:
-    """Indexer combining pgvector + Postgres FTS with native RRF and tracking.
+    """Indexes chunks into pgvector with a parallel full-text index.
 
-    A single Postgres table containing:
-      - langchain_id        UUID PRIMARY KEY
-      - content             TEXT
-      - embedding           vector(1024)
-      - langchain_metadata  JSONB
-      - tsv                 tsvector (automatically generated via trigger)
+    The table carries both representations of every chunk:
 
-    Hybrid search via HybridSearchConfig using reciprocal_rank_fusion.
-    Tracks document state incrementally using SQLRecordManager.
+    ==================  ==========================================
+    ``langchain_id``    UUID primary key (deterministic per chunk)
+    ``content``         chunk text
+    ``embedding``       dense vector
+    ``langchain_meta``  JSON metadata (source, page, headings)
+    ``tsv``             tsvector, maintained by Postgres, GIN-indexed
+    ==================  ==========================================
 
-    Usage:
-        indexer = HybridIndexer(embeddings=get_embeddings())
-        indexer.add_documents(chunks)              # Incremental smart upsert
-        results = indexer.search(query, top_k=5)   # Hybrid RRF search
-
-    Note:
-        Not yet wired into the ingest pipeline, which uses the dense-only
-        indexer from :func:`src.config.config.get_indexer`. This class writes to
-        its own table, so switching over requires a full re-ingest.
+    Writes go through LangChain's indexing API with a
+    :class:`SQLRecordManager`, so re-ingesting an unchanged document is a no-op
+    rather than a re-embedding: content hashes are compared first, and only
+    genuinely new or changed chunks reach the embedding provider. On a metered
+    endpoint that is the difference between a cheap re-run and a rate limit.
     """
-
-    TABLE_NAME = "rag_documents"
-    RECORD_MANAGER_TABLE = "rag_record_manager"
 
     def __init__(
         self,
         embeddings: Embeddings,
-        connection_string: str | None = None,
-        table_name: str = TABLE_NAME,
-        vector_size: int | None = None,
+        connection_string: str,
+        table_name: str,
+        vector_size: int,
+        *,
+        tsv_language: str = "pg_catalog.english",
+        candidate_pool: int = 50,
+        rrf_k: float = 60.0,
     ):
-        # Defaults come from the environment-driven config, never from literals:
-        # a hardcoded DSN leaks credentials and silently drifts from the
-        # deployment the rest of the pipeline talks to.
-        connection_string = connection_string or PG_CONNECTION
-        vector_size = vector_size if vector_size is not None else VECTOR_SIZE
-
+        """
+        Args:
+            embeddings: Embedding model. Must produce `vector_size` dimensions.
+            connection_string: SQLAlchemy DSN (sync psycopg driver).
+            table_name: Target table. Created if absent.
+            vector_size: Embedding width. Must match the model exactly.
+            tsv_language: Postgres text-search configuration. Governs stemming
+                and stop words, so it must match the corpus language --
+                'pg_catalog.english' will not stem Spanish correctly.
+            candidate_pool: Rows each retrieval arm contributes before fusion.
+                Deliberately wide: recall lost here cannot be recovered by any
+                downstream reranker.
+            rrf_k: RRF smoothing constant. 60 is the value from the original
+                paper and is not usually worth tuning.
+        """
         from langchain_postgres.v2.engine import PGEngine
         from langchain_postgres.v2.hybrid_search_config import (
             HybridSearchConfig,
@@ -76,153 +101,212 @@ class HybridIndexer:
         )
         from langchain_postgres.v2.vectorstores import PGVectorStore
 
-        self._embeddings = embeddings
         self._connection_string = connection_string
         self._table_name = table_name
         self._vector_size = vector_size
+        self._tsv_language = tsv_language
+        self._candidate_pool = candidate_pool
+        self._rrf_k = rrf_k
+        self._reciprocal_rank_fusion = reciprocal_rank_fusion
+        self._HybridSearchConfig = HybridSearchConfig
 
-        # Hybrid search config: RRF with tsvector mapped to the 'tsv' column
-        self._hybrid_config = HybridSearchConfig(
-            tsv_column="tsv",
-            tsv_lang="pg_catalog.english",  # Change to pg_catalog.spanish if documents are in Spanish
-            fusion_function=reciprocal_rank_fusion,
-            primary_top_k=20,
-            secondary_top_k=20,
-            index_name="rag_documents_tsv_gin",
-            index_type="GIN",
+        self._hybrid_config = self._build_hybrid_config(candidate_pool)
+
+        # PGEngine drives SQLAlchemy's async stack and needs an async driver.
+        self._engine = PGEngine.from_connection_string(
+            connection_string.replace(
+                "postgresql+psycopg://", "postgresql+psycopg_async://"
+            )
         )
 
-        # Create the database engine for connection pooling
-        self._engine = PGEngine.from_connection_string(connection_string)
+        self._ensure_table()
 
-        # Create table with hybrid schema (includes tsv column + GIN index).
-        # init_vectorstore_table lacks an 'IF NOT EXISTS' clause, so we catch the constraint error.
-        try:
-            self._engine.init_vectorstore_table(
-                table_name=table_name,
-                vector_size=self._vector_size,  # 1024 for bge-m3, 3072 for text-embedding-3-large
-                id_column="langchain_id",
-                hybrid_search_config=self._hybrid_config,
-                overwrite_existing=False,
-            )
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                print(
-                    f"[indexers] Table '{table_name}' already exists, reusing infrastructure."
-                )
-            else:
-                raise
-
-        # Initialize the underlying PGVectorStore instance
-        self._store = PGVectorStore.from_texts(
-            texts=[],
-            embedding=embeddings,
+        self._store = PGVectorStore.create_sync(
             engine=self._engine,
+            embedding_service=embeddings,
             table_name=table_name,
-            id_column="langchain_id",
             hybrid_search_config=self._hybrid_config,
         )
 
-        # Ensure the GIN index is applied on the tsv column for fast keyword retrieval
+        # GIN index on the tsvector column. Without it every keyword query is a
+        # sequential scan, which is invisible on 200 rows and fatal on 2 million.
         try:
             self._store.apply_hybrid_search_index()
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                pass  # GIN index is already initialized
-            else:
+        except Exception as error:
+            if "already exists" not in str(error).lower():
                 raise
+            logger.debug("Full-text GIN index already present.")
 
-        # Configure the professional SQLRecordManager to prevent duplicate embeddings
         self._record_manager = SQLRecordManager(
-            namespace=f"pgvector/{self._table_name}", db_url=self._connection_string
+            namespace=f"pgvector/{table_name}", db_url=connection_string
         )
         self._record_manager.create_schema()
 
-    # ── Incremental Production Indexing ────────────────────────
-    def add_documents(self, documents: list[Document]) -> dict:
-        """Upserts documents into pgvector and tracks state via SQLRecordManager.
+    # ── Schema ────────────────────────────────────────────────
+    def _build_hybrid_config(self, fetch_top_k: int):
+        """Builds a fusion config that actually returns `fetch_top_k` rows.
 
-        Calculates content hashes dynamically. Automatically handles garbage collection
-        by deleting stale chunks and completely avoids redundant embedding API calls.
+        reciprocal_rank_fusion defaults to fetch_top_k=4 internally, independent
+        of primary_top_k/secondary_top_k. Without this override, asking for 50
+        candidates silently yields 4 -- the arms retrieve wide and the fusion
+        throws the result away.
         """
-        # Inject deterministic chunk IDs into metadata for tracking consistency
-        for doc in documents:
-            if "chunk_id" not in doc.metadata:
-                doc.metadata["chunk_id"] = stable_chunk_id(
-                    doc.metadata.get("source", "Unknown"), doc.page_content
-                )
-
-        # Execute LangChain's industry-standard high-level indexing API
-        indexing_result = index(
-            docs_source=documents,
-            record_manager=self._record_manager,
-            vector_store=self._store,
-            cleanup="incremental",  # Cleans up old chunks if the source document gets updated
-            source_id_key="source",  # Uses the source metadata attribute as the logical document tracking key
+        return self._HybridSearchConfig(
+            tsv_column="tsv",
+            tsv_lang=self._tsv_language,
+            fusion_function=self._reciprocal_rank_fusion,
+            fusion_function_parameters={
+                "rrf_k": self._rrf_k,
+                "fetch_top_k": fetch_top_k,
+            },
+            primary_top_k=fetch_top_k,
+            secondary_top_k=fetch_top_k,
+            index_name=f"{self._table_name}_tsv_gin",
+            index_type="GIN",
         )
-        return indexing_result
 
-    def delete(self, ids: list[str]) -> None:
-        """Deletes raw vector entries directly by their specific IDs."""
-        self._store.delete(ids=ids)
-
-    def delete_by_source(self, source: str) -> int:
-        """Manually drops all chunks belonging to a single source document. Returns deletion count."""
+    def _existing_columns(self) -> dict[str, str]:
+        """Returns {column: type} for the target table, empty if it does not exist."""
         import psycopg
 
-        conn = psycopg.connect(
-            self._connection_string.replace("postgresql+psycopg://", "postgresql://")
+        dsn = self._connection_string.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, udt_name FROM information_schema.columns "
+                "WHERE table_name = %s",
+                (self._table_name,),
+            )
+            return {name: udt for name, udt in cur.fetchall()}
+
+    def _vector_dimensions(self) -> int | None:
+        """Returns the declared width of the embedding column, if any."""
+        import psycopg
+
+        dsn = self._connection_string.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.atttypmod FROM pg_attribute a "
+                "JOIN pg_class c ON a.attrelid = c.oid "
+                "WHERE c.relname = %s AND a.attname = 'embedding'",
+                (self._table_name,),
+            )
+            row = cur.fetchone()
+            return row[0] if row and row[0] and row[0] > 0 else None
+
+    def _ensure_table(self) -> None:
+        """Creates the table, or verifies an existing one can hold our data.
+
+        Writing into a table with the wrong vector width or no tsv column fails
+        later, deep inside a batch, with an opaque driver error. Checking up
+        front turns that into one actionable message.
+        """
+        columns = self._existing_columns()
+
+        if not columns:
+            self._engine.init_vectorstore_table(
+                table_name=self._table_name,
+                vector_size=self._vector_size,
+                hybrid_search_config=self._hybrid_config,
+            )
+            logger.info(
+                f"Created hybrid table '{self._table_name}' "
+                f"(vector({self._vector_size}) + tsv)."
+            )
+            return
+
+        problems = []
+        if "tsv" not in columns:
+            problems.append("missing the 'tsv' column required for full-text search")
+
+        existing_dims = self._vector_dimensions()
+        if existing_dims is not None and existing_dims != self._vector_size:
+            problems.append(
+                f"embedding column is vector({existing_dims}), "
+                f"but the configured model produces {self._vector_size}"
+            )
+
+        if problems:
+            raise SchemaMismatchError(
+                f"Table '{self._table_name}' cannot be used: "
+                + "; ".join(problems)
+                + ". This usually means the table predates hybrid search, or was "
+                "built under a different INFRASTRUCTURE_MODE. Point "
+                "RAG_TABLE_NAME at a new table and re-ingest, or drop the old "
+                "one. Existing rows cannot be migrated -- vectors from a "
+                "different model are not comparable."
+            )
+
+        logger.info(f"Reusing hybrid table '{self._table_name}'.")
+
+    # ── Write path ────────────────────────────────────────────
+    def add_documents(self, documents: list[Document]) -> dict:
+        """Upserts chunks, skipping any whose content is already indexed."""
+        for doc in documents:
+            doc.metadata.setdefault(
+                "chunk_id",
+                stable_chunk_id(doc.metadata.get("source", "unknown"), doc.page_content),
+            )
+
+        return index(
+            documents,
+            record_manager=self._record_manager,
+            vector_store=self._store,
+            # Scoped to the source ids present in this batch: stale chunks of an
+            # updated document are deleted, other documents are untouched.
+            cleanup="incremental",
+            source_id_key="source",
         )
-        conn.autocommit = True
-        try:
+
+    def delete_by_source(self, source: str) -> int:
+        """Deletes every chunk belonging to one source document."""
+        import psycopg
+
+        dsn = self._connection_string.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(dsn) as conn:
+            conn.autocommit = True
             with conn.cursor() as cur:
                 cur.execute(
-                    f"DELETE FROM {self._table_name} "
+                    f"DELETE FROM {self._table_name} "  # noqa: S608 - identifier is config, not input
                     f"WHERE langchain_metadata->>'source' = %s",
                     (source,),
                 )
                 return cur.rowcount
-        finally:
-            conn.close()
 
-    # ── High-Performance Retrieval ──────────────────────────────
-    def search(self, query: str, top_k: int = 5) -> list[tuple[str, float]]:
-        """Hybrid search (RRF: pgvector dense + FTS sparse). Returns [(chunk_id, rrf_score)]."""
-        results = self._store.similarity_search_with_score(
-            query, k=top_k, hybrid_search_config=self._hybrid_config
+    # ── Recall stage ──────────────────────────────────────────
+    def search(
+        self, query: str, k: int = 50, filter: dict | None = None
+    ) -> list[tuple[Document, float]]:
+        """Runs both retrieval arms and returns the RRF-fused candidates.
+
+        Args:
+            query: Natural-language query. Used verbatim by both arms -- the
+                dense arm embeds it, the sparse arm tokenizes it.
+            k: Candidates to return. Keep this wide (tens, not units); this is
+                a recall stage, and a reranker cannot rank what was never
+                retrieved.
+            filter: Optional metadata equality filter.
+
+        Returns:
+            (document, rrf_score) pairs, best first. The score is a fusion
+            artefact, not a similarity -- it is comparable within one result
+            set and meaningless across queries.
+        """
+        config = self._build_hybrid_config(max(k, self._candidate_pool))
+        return self._store.similarity_search_with_score(
+            query, k=k, filter=filter, hybrid_search_config=config
         )
-        return [
-            (doc.metadata.get("chunk_id", ""), float(score)) for doc, score in results
-        ]
-
-    def search_documents(self, query: str, top_k: int = 5) -> list[Document]:
-        """Hybrid search returning complete, unmarshalled Document objects with metadata."""
-        return self._store.similarity_search(
-            query, k=top_k, hybrid_search_config=self._hybrid_config
-        )
-
-    def get_document(self, chunk_id: str) -> Document | None:
-        """Retrieves a single isolated Document by its exact chunk_id (langchain_id)."""
-        docs = self._store.get_by_ids([chunk_id])
-        return docs[0] if docs else None
 
     @property
     def store(self):
-        """Direct access hook to the underlying raw PGVectorStore v2 layer."""
+        """The underlying PGVectorStore, for callers needing the raw layer."""
         return self._store
 
     @property
     def count(self) -> int:
-        """Returns the total number of document nodes currently active inside the database."""
+        """Number of chunks currently indexed."""
         import psycopg
 
-        conn = psycopg.connect(
-            self._connection_string.replace("postgresql+psycopg://", "postgresql://")
-        )
-        conn.autocommit = True
-        try:
-            with conn.cursor() as cur:
-                cur.execute(f"SELECT count(*) FROM {self._table_name}")
-                return cur.fetchone()[0]
-        finally:
-            conn.close()
+        dsn = self._connection_string.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {self._table_name}")  # noqa: S608
+            return cur.fetchone()[0]
