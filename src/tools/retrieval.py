@@ -17,14 +17,11 @@ NO_RESULTS = (
     "terminology or tell the user that this information is unavailable. Do not "
     "answer from your own knowledge."
 )
-DEFAULT_TOOL_NAME = "search_regulations"
+DEFAULT_TOOL_NAME = "search_corpus"
 DEFAULT_TOOL_DESCRIPTION = """\
-Searches the indexed regulatory corpus: the consolidated EU AI Act and GDPR,
-including articles, recitals, and annexes.
+Searches the documents indexed in the RAG corpus.
 
-Use it for questions about legal obligations, deadlines, definitions, risk
-classification, penalties, or scope. Use the regulation's terminology and keep
-exact identifiers such as "Article 6", "Annex III", and "GPAI". Search one
+Use it when the answer may be contained in the indexed documents. Search one
 topic at a time. Returns numbered passages with source, page, and section; cite
 their markers in the response.\
 """
