@@ -103,6 +103,31 @@ RETRIEVER_FETCH_K = _env_int("RETRIEVER_FETCH_K", 50)
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 
+# ── Generation ────────────────────────────────────────────────
+# Cloud: an Azure AI Foundry chat deployment. The deployment name is a routing
+# label chosen when deploying and need not match the base model name.
+AZURE_CHAT_DEPLOYMENT = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-5.4-mini")
+AZURE_CHAT_ENDPOINT = os.getenv("AZURE_CHAT_ENDPOINT") or os.getenv(
+    "AZURE_FOUNDRY_ENDPOINT"
+)
+
+# On-premise: any OpenAI-compatible inference server. LM Studio during
+# development (default port 1234), vLLM or NVIDIA NIM in production -- all three
+# speak the same Chat Completions protocol, so switching between them is this
+# pair of variables and nothing else.
+ONPREM_CHAT_BASE_URL = os.getenv(
+    "ONPREM_CHAT_BASE_URL", "http://10.24.32.76:24224/v1"
+)
+ONPREM_CHAT_MODEL = os.getenv("ONPREM_CHAT_MODEL", "mistralai/ministral-3-3b")
+# Self-hosted servers ignore the key, but the OpenAI client requires one.
+ONPREM_CHAT_API_KEY = os.getenv("ONPREM_CHAT_API_KEY", "not-needed")
+
+# Low by default: the model's job is to restate retrieved text faithfully, not
+# to be creative. Sampling variance here shows up as invented detail.
+GENERATION_TEMPERATURE = _env_float("GENERATION_TEMPERATURE", 0.0)
+GENERATION_MAX_TOKENS = _env_int("GENERATION_MAX_TOKENS", 1024)
+GENERATION_TIMEOUT = _env_float("GENERATION_TIMEOUT", 120.0)
+
 VECTOR_SIZE = (
     CLOUD_EMBEDDING_DIMENSIONS
     if INFRASTRUCTURE_MODE == "cloud"
@@ -288,6 +313,69 @@ def get_reranker():
         logger.info(f"Reranker ready: {RERANKER_MODEL} on {device}")
 
     return _reranker
+
+
+# ── Chat model ────────────────────────────────────────────────
+_chat_model = None
+
+
+def get_chat_model():
+    """Returns the chat model singleton for the active infrastructure mode.
+
+    Both branches target the same protocol -- OpenAI Chat Completions -- so the
+    generator is identical in either deployment. Moving from LM Studio to vLLM
+    or NVIDIA NIM on-premise changes ``ONPREM_CHAT_BASE_URL`` and
+    ``ONPREM_CHAT_MODEL``, and nothing else.
+    """
+    global _chat_model
+    if _chat_model is None:
+        if INFRASTRUCTURE_MODE == "cloud":
+            from azure.core.credentials import AzureKeyCredential
+            from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
+
+            api_key = os.getenv("AZURE_FOUNDRY_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "[config] AZURE_FOUNDRY_API_KEY is required in cloud mode."
+                )
+
+            _chat_model = AzureAIOpenAIApiChatModel(
+                endpoint=AZURE_CHAT_ENDPOINT,
+                credential=AzureKeyCredential(api_key),
+                model=AZURE_CHAT_DEPLOYMENT,
+                temperature=GENERATION_TEMPERATURE,
+                max_tokens=GENERATION_MAX_TOKENS,
+            )
+            logger.info(f"Chat model ready: Azure deployment={AZURE_CHAT_DEPLOYMENT}")
+        else:
+            from langchain_openai import ChatOpenAI
+
+            _chat_model = ChatOpenAI(
+                model=ONPREM_CHAT_MODEL,
+                base_url=ONPREM_CHAT_BASE_URL,
+                api_key=ONPREM_CHAT_API_KEY,
+                temperature=GENERATION_TEMPERATURE,
+                max_tokens=GENERATION_MAX_TOKENS,
+                timeout=GENERATION_TIMEOUT,
+            )
+            logger.info(
+                f"Chat model ready: {ONPREM_CHAT_MODEL} at {ONPREM_CHAT_BASE_URL}"
+            )
+
+    return _chat_model
+
+
+# ── Generator ─────────────────────────────────────────────────
+def get_generator(**kwargs):
+    """Builds the grounded answer generator.
+
+    Args:
+        **kwargs: Passed through to :class:`~src.rag.generator.Generator`
+            (``system_prompt``).
+    """
+    from src.rag.generator import Generator
+
+    return Generator(llm=get_chat_model(), **kwargs)
 
 
 # ── Retriever ─────────────────────────────────────────────────
