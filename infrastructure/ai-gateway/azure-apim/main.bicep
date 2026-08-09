@@ -117,6 +117,39 @@ resource chatCompletionsPolicy 'Microsoft.ApiManagement/service/apis/operations/
   ]
 }
 
+resource embeddingsOperation 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: aiGatewayApi
+  name: 'embeddings'
+  properties: {
+    displayName: 'Create embeddings'
+    method: 'POST'
+    urlTemplate: '/embeddings'
+    templateParameters: []
+  }
+}
+
+resource embeddingsPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-05-01' = {
+  parent: embeddingsOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: '''<policies>
+  <inbound>
+    <base />
+    <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="{{agentic-ai-tokens-per-minute}}" estimate-prompt-tokens="true" />
+    <set-backend-service base-url="{{agentic-ai-backend-url}}" />
+    <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>'''
+  }
+  dependsOn: [
+    apimFoundryRole
+  ]
+}
+
 output gatewayBaseUrl string = 'https://${apimServiceName}.azure-api.net/ai/v1'
 output apiId string = aiGatewayApi.name
 output apimResourceId string = apim.id
