@@ -46,8 +46,42 @@ class PrivacyMiddleware:
         if not text:
             return PrivacyResult(text)
         if self._mode == "cloud":
+            self._check_azure_content_safety(text)
             return self._sanitize_azure(text, language)
         return self._sanitize_presidio(text, language)
+
+    def _check_azure_content_safety(self, text: str) -> None:
+        """Block harmful text when Azure Content Safety is configured.
+
+        Content Safety is deliberately optional here so local development can
+        continue using only Azure Language PII or Presidio. A severity of 4 or
+        higher is blocked by default; tune it with the environment variable.
+        """
+        endpoint = os.getenv("AZURE_CONTENT_SAFETY_ENDPOINT")
+        key = os.getenv("AZURE_CONTENT_SAFETY_KEY")
+        if not endpoint or not key:
+            return
+
+        response = _post_json(
+            f"{endpoint.rstrip('/')}/contentsafety/text:analyze?api-version=2024-09-01",
+            {
+                "text": text,
+                "categories": ["Hate", "Sexual", "SelfHarm", "Violence"],
+                "outputType": "FourSeverityLevels",
+            },
+            {"Ocp-Apim-Subscription-Key": key},
+        )
+        threshold = int(os.getenv("AZURE_CONTENT_SAFETY_BLOCK_SEVERITY", "4"))
+        violations = [
+            item
+            for item in response.get("categoriesAnalysis", [])
+            if int(item.get("severity", 0)) >= threshold
+        ]
+        if violations:
+            categories = ", ".join(item["category"] for item in violations)
+            raise PrivacyViolation(
+                f"Azure Content Safety blocked the text; categories={categories}"
+            )
 
     def _sanitize_presidio(self, text: str, language: str) -> PrivacyResult:
         analyzer = os.environ["PRESIDIO_ANALYZER_URL"].rstrip("/")
