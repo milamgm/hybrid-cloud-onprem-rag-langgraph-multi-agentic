@@ -1,0 +1,21 @@
+# LiteLLM configuration for an on-premise OpenAI-compatible inference server.
+# The upstream base URL and credentials are injected at runtime, never committed.
+model_list:
+  - model_name: onprem-primary
+    litellm_params:
+      model: os.environ/ONPREM_LITELLM_MODEL
+      api_base: os.environ/ONPREM_UPSTREAM_BASE_URL
+      api_key: os.environ/ONPREM_UPSTREAM_API_KEY
+      timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  store_model_in_db: false
+
+router_settings:
+  num_retries: 2
+  timeout: 120
+
+litellm_settings:
+  json_logs: true
+  set_verbose: false

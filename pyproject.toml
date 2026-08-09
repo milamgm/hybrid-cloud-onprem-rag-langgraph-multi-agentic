@@ -11,6 +11,7 @@ dependencies = [
     "langchain-azure-ai>=1.2.3",
     "langchain-classic>=1.0.8",
     "langchain-huggingface>=1.2.2",
+    "langchain-openai>=1.1.11",
     "langchain-postgres>=0.0.17",
     "langchain-tavily>=0.2.18",
     "langchain-text-splitters>=1.1.2",

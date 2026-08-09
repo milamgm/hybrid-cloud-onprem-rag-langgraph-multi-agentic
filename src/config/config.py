@@ -110,17 +110,21 @@ AZURE_CHAT_DEPLOYMENT = os.getenv("AZURE_CHAT_DEPLOYMENT", "gpt-5.4-mini")
 AZURE_CHAT_ENDPOINT = os.getenv("AZURE_CHAT_ENDPOINT") or os.getenv(
     "AZURE_FOUNDRY_ENDPOINT"
 )
+AZURE_APIM_GATEWAY_URL = os.getenv("AZURE_APIM_GATEWAY_URL")
+AZURE_APIM_SUBSCRIPTION_KEY = os.getenv("AZURE_APIM_SUBSCRIPTION_KEY")
 
-# On-premise: any OpenAI-compatible inference server. LM Studio during
-# development (default port 1234), vLLM or NVIDIA NIM in production -- all three
-# speak the same Chat Completions protocol, so switching between them is this
-# pair of variables and nothing else.
+# On-premise: LM Studio during local development (default port 1234); vLLM or
+# NVIDIA NIM in production. All expose OpenAI Chat Completions, so switching
+# only changes these variables and the LiteLLM upstream configuration.
 ONPREM_CHAT_BASE_URL = os.getenv(
-    "ONPREM_CHAT_BASE_URL", "http://10.24.32.76:24224/v1"
+    "ONPREM_CHAT_BASE_URL", "http://127.0.0.1:1234/v1"
 )
-ONPREM_CHAT_MODEL = os.getenv("ONPREM_CHAT_MODEL", "mistralai/ministral-3-3b")
+ONPREM_CHAT_MODEL = os.getenv("ONPREM_CHAT_MODEL", "ministral-3-3b-instruct-2512")
 # Self-hosted servers ignore the key, but the OpenAI client requires one.
 ONPREM_CHAT_API_KEY = os.getenv("ONPREM_CHAT_API_KEY", "not-needed")
+ONPREM_LITELLM_BASE_URL = os.getenv("ONPREM_LITELLM_BASE_URL")
+ONPREM_LITELLM_API_KEY = os.getenv("ONPREM_LITELLM_API_KEY")
+ONPREM_LITELLM_MODEL = os.getenv("ONPREM_LITELLM_MODEL", "onprem-primary")
 
 # Low by default: the model's job is to restate retrieved text faithfully, not
 # to be creative. Sampling variance here shows up as invented detail.
@@ -330,6 +334,29 @@ def get_chat_model():
     global _chat_model
     if _chat_model is None:
         if INFRASTRUCTURE_MODE == "cloud":
+            if bool(AZURE_APIM_GATEWAY_URL) != bool(AZURE_APIM_SUBSCRIPTION_KEY):
+                raise ValueError(
+                    "[config] Set both AZURE_APIM_GATEWAY_URL and "
+                    "AZURE_APIM_SUBSCRIPTION_KEY to use Azure API Management."
+                )
+
+            if AZURE_APIM_GATEWAY_URL:
+                from langchain_openai import ChatOpenAI
+
+                _chat_model = ChatOpenAI(
+                    model=AZURE_CHAT_DEPLOYMENT,
+                    base_url=AZURE_APIM_GATEWAY_URL,
+                    api_key=AZURE_APIM_SUBSCRIPTION_KEY,
+                    default_headers={
+                        "Ocp-Apim-Subscription-Key": AZURE_APIM_SUBSCRIPTION_KEY
+                    },
+                    temperature=GENERATION_TEMPERATURE,
+                    max_tokens=GENERATION_MAX_TOKENS,
+                    timeout=GENERATION_TIMEOUT,
+                )
+                logger.info("Chat model ready through Azure API Management.")
+                return _chat_model
+
             from azure.core.credentials import AzureKeyCredential
             from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
 
@@ -349,6 +376,24 @@ def get_chat_model():
             logger.info(f"Chat model ready: Azure deployment={AZURE_CHAT_DEPLOYMENT}")
         else:
             from langchain_openai import ChatOpenAI
+
+            if bool(ONPREM_LITELLM_BASE_URL) != bool(ONPREM_LITELLM_API_KEY):
+                raise ValueError(
+                    "[config] Set both ONPREM_LITELLM_BASE_URL and "
+                    "ONPREM_LITELLM_API_KEY to use LiteLLM."
+                )
+
+            if ONPREM_LITELLM_BASE_URL:
+                _chat_model = ChatOpenAI(
+                    model=ONPREM_LITELLM_MODEL,
+                    base_url=ONPREM_LITELLM_BASE_URL,
+                    api_key=ONPREM_LITELLM_API_KEY,
+                    temperature=GENERATION_TEMPERATURE,
+                    max_tokens=GENERATION_MAX_TOKENS,
+                    timeout=GENERATION_TIMEOUT,
+                )
+                logger.info("Chat model ready through the on-premise LiteLLM gateway.")
+                return _chat_model
 
             _chat_model = ChatOpenAI(
                 model=ONPREM_CHAT_MODEL,
