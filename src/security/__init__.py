@@ -5,6 +5,11 @@ from src.security.injection import (
     InjectionViolation,
     PromptInjectionMiddleware,
 )
+from src.security.output_validation import (
+    OutputValidationMiddleware,
+    OutputValidationResult,
+    OutputValidationViolation,
+)
 from src.security.tool_policy import (
     ToolApprovalRequired,
     ToolAuthorizationDenied,
@@ -17,6 +22,9 @@ __all__ = [
     "InjectionResult",
     "InjectionViolation",
     "PromptInjectionMiddleware",
+    "OutputValidationMiddleware",
+    "OutputValidationResult",
+    "OutputValidationViolation",
     "ToolApprovalRequired",
     "ToolAuthorizationDenied",
     "ToolAuthorizationMiddleware",

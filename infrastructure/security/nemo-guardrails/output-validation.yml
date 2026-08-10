@@ -1,0 +1,30 @@
+# Load this configuration with NeMo Guardrails next to the application LLM.
+# It applies the dedicated Content Safety NIM to generated responses only.
+models:
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemotron-safety-guard-8b-v3
+    parameters:
+      base_url: ${NEMO_CONTENT_SAFETY_NIM_BASE_URL}
+
+rails:
+  output:
+    flows:
+      - content safety check output $model=content_safety
+
+prompts:
+  - task: content_safety_check_output $model=content_safety
+    content: |
+      Check the assistant response against this safety policy: violence, sexual
+      content, self-harm, hate, harassment, illegal activity, fraud, malware,
+      privacy, dangerous advice and manipulation.
+
+      <BEGIN CONVERSATION>
+      user: {{ user_input }}
+      response: agent: {{ bot_response }}
+      <END CONVERSATION>
+
+      Return only JSON with "Response Safety" set to "safe" or "unsafe" and,
+      if unsafe, "Safety Categories".
+    output_parser: nemoguard_parse_response_safety
+    max_tokens: 50

@@ -11,5 +11,18 @@ services:
     shm_size: 64gb
     restart: unless-stopped
 
+  nemotron-safety-guard:
+    image: nvcr.io/nim/nvidia/llama-3.1-nemotron-safety-guard-8b-v3:1.14.0
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY:?Set NGC_API_KEY in .env}
+    ports:
+      - "127.0.0.1:8124:8000"
+    volumes:
+      - nemotron-safety-model-cache:/opt/nim/.cache
+    gpus: all
+    shm_size: 64gb
+    restart: unless-stopped
+
 volumes:
   nemoguard-model-cache:
+  nemotron-safety-model-cache:
