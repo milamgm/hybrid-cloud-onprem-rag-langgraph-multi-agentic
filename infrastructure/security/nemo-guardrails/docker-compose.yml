@@ -1,0 +1,15 @@
+services:
+  nemoguard-jailbreakdetect:
+    image: nvcr.io/nim/nvidia/nemoguard-jailbreak-detect:1.10.1
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY:?Set NGC_API_KEY in .env}
+    ports:
+      - "127.0.0.1:8123:8000"
+    volumes:
+      - nemoguard-model-cache:/opt/nim/.cache
+    gpus: all
+    shm_size: 64gb
+    restart: unless-stopped
+
+volumes:
+  nemoguard-model-cache:
