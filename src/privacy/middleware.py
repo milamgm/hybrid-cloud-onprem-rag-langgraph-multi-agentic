@@ -98,8 +98,20 @@ class PrivacyMiddleware:
         return PrivacyResult(redacted["text"], entities)
 
     def _sanitize_azure(self, text: str, language: str) -> PrivacyResult:
-        endpoint = os.environ["AZURE_LANGUAGE_ENDPOINT"].rstrip("/")
-        key = os.environ["AZURE_LANGUAGE_KEY"]
+        endpoint = (
+            os.getenv("AZURE_LANGUAGE_ENDPOINT")
+            or os.getenv("AZURE_FOUNDRY_ENDPOINT")
+        )
+        key = os.getenv("AZURE_LANGUAGE_KEY") or os.getenv("AZURE_FOUNDRY_API_KEY")
+        if not endpoint or not key:
+            raise ValueError(
+                "Cloud PII requires AZURE_FOUNDRY_ENDPOINT and "
+                "AZURE_FOUNDRY_API_KEY (or the legacy AZURE_LANGUAGE_* pair)."
+            )
+
+        # Foundry's OpenAI-compatible variable includes this suffix, while the
+        # Azure Language runtime endpoint starts at the resource root.
+        endpoint = endpoint.removesuffix("/openai/v1").rstrip("/")
         response = _post_json(
             f"{endpoint}/language/:analyze-text?api-version=2024-11-01",
             {"kind": "PiiEntityRecognition", "parameters": {"modelVersion": "latest"}, "analysisInput": {"documents": [{"id": "1", "language": language, "text": text}]}},
