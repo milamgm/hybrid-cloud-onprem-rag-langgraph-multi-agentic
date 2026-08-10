@@ -1,0 +1,25 @@
+<policies>
+  <inbound>
+    <base />
+    <!-- Attach this policy to one remote-tool operation in APIM. -->
+    <validate-jwt header-name="Authorization" require-scheme="Bearer"
+                  failed-validation-httpcode="401"
+                  failed-validation-error-message="Valid Entra ID token required."
+                  output-token-variable-name="tool-jwt">
+      <openid-config url="{{tool-entraid-openid-config-url}}" />
+      <audiences>
+        <audience>{{tool-api-audience}}</audience>
+      </audiences>
+      <required-claims>
+        <claim name="roles" match="any">
+          <value>{{tool-required-role}}</value>
+        </claim>
+      </required-claims>
+    </validate-jwt>
+    <rate-limit-by-key calls="5" renewal-period="60"
+                       counter-key="@(context.Principal?.Identity?.Name ?? context.Subscription.Id)" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>
