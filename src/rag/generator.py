@@ -95,7 +95,13 @@ class Generator:
 
         return "\n\n---\n\n".join(blocks)
 
-    def generate(self, question: str, documents: list[Document]) -> GeneratedAnswer:
+    def generate(
+        self,
+        question: str,
+        documents: list[Document],
+        *,
+        presentation_preferences: dict[str, str] | None = None,
+    ) -> GeneratedAnswer:
         """Answer a question using only retrieved documents."""
         if not documents:
             logger.info("No documents retrieved; refusing without calling the LLM.")
@@ -103,8 +109,20 @@ class Generator:
 
         citations = self._build_citations(documents)
         context = self._format_context(documents, citations)
+        preferences = presentation_preferences or {}
+        preference_lines = []
+        if language := preferences.get("answer_language"):
+            preference_lines.append(f"Answer language: {language}.")
+        if response_format := preferences.get("response_format"):
+            preference_lines.append(f"Response format: {response_format}.")
+        system_prompt = self._system_prompt
+        if preference_lines:
+            system_prompt += "\n\nApproved presentation preferences:\n" + "\n".join(
+                preference_lines
+            )
+
         messages = [
-            SystemMessage(content=self._system_prompt),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=f"CONTEXT:\n{context}\n\nQUESTION: {question}"),
         ]
         response = self._llm.invoke(messages)

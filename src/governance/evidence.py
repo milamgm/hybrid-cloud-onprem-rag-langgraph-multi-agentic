@@ -160,6 +160,7 @@ class GovernanceService:
         policy_version: str,
         decision: str,
         reason_code: str,
+        correlation_id: str | None = None,
     ) -> GovernanceEvent:
         return self._record(
             "policy_decision",
@@ -170,6 +171,7 @@ class GovernanceService:
                 "decision": decision,
                 "reason_code": reason_code,
             },
+            correlation_id=correlation_id,
         )
 
     def record_metric(
@@ -209,9 +211,21 @@ class GovernanceService:
         )
 
     def _record(
-        self, event_type: EventType, subject: str, payload: dict[str, Any]
+        self,
+        event_type: EventType,
+        subject: str,
+        payload: dict[str, Any],
+        *,
+        correlation_id: str | None = None,
     ) -> GovernanceEvent:
-        event = self._ledger.append(GovernanceEvent(event_type, subject, payload))
+        event = self._ledger.append(
+            GovernanceEvent(
+                event_type,
+                subject,
+                payload,
+                **({"correlation_id": correlation_id} if correlation_id else {}),
+            )
+        )
         attributes = {
             "governance.event_type": event.event_type,
             "governance.subject": event.subject,
