@@ -10,6 +10,7 @@ from src.security.output_validation import (
     OutputValidationResult,
     OutputValidationViolation,
 )
+from src.security.secrets import SecretLease, SecretProvider
 from src.security.tool_policy import (
     ToolApprovalRequired,
     ToolAuthorizationDenied,
@@ -25,6 +26,8 @@ __all__ = [
     "OutputValidationMiddleware",
     "OutputValidationResult",
     "OutputValidationViolation",
+    "SecretLease",
+    "SecretProvider",
     "ToolApprovalRequired",
     "ToolAuthorizationDenied",
     "ToolAuthorizationMiddleware",
