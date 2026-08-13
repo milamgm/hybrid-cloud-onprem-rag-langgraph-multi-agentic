@@ -103,7 +103,9 @@ def _print_cases(report) -> None:
     print("\n── per case ──")
     for case in report.cases:
         rank = f"rank {case.hit_rank}" if case.hit_rank else "MISS"
-        print(f"  [{rank:>7}] recall={case.recall:.2f} ndcg={case.ndcg:.2f}  {case.question}")
+        print(
+            f"  [{rank:>7}] recall={case.recall:.2f} ndcg={case.ndcg:.2f}  {case.question}"
+        )
         if case.hit_rank is None:
             print(f"            expected {case.relevant_sources}")
             print(f"            got      {case.retrieved_sources[:3]}")

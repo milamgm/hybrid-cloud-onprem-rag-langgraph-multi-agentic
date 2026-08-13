@@ -121,7 +121,9 @@ def test_chunks_respect_the_token_budget(tokenizer):
     assert len(chunks) > 1, "an oversized section must be split"
     # contextualize() prepends headings on top of the body budget, so allow a
     # small margin for the heading tokens themselves.
-    assert all(tokenizer.count_tokens(c.page_content) <= MAX_TOKENS + 32 for c in chunks)
+    assert all(
+        tokenizer.count_tokens(c.page_content) <= MAX_TOKENS + 32 for c in chunks
+    )
 
 
 def test_source_metadata_is_set_for_incremental_cleanup(parsed_structured, tokenizer):
@@ -168,7 +170,9 @@ def test_empty_input_yields_no_chunks(tokenizer):
 
 def test_chunk_documents_skips_failures_and_keeps_going(parsed_structured, tokenizer):
     """One malformed document must not abort a corpus-wide ingest."""
-    broken = ParsedDocument(source=Path("broken.pdf"), docling_document="not a document")
+    broken = ParsedDocument(
+        source=Path("broken.pdf"), docling_document="not a document"
+    )
 
     chunks = chunk_documents([broken, parsed_structured], tokenizer)
 

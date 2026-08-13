@@ -33,6 +33,23 @@ def _connection_string() -> str:
     return connection_string
 
 
+def _redis_connection_string() -> str:
+    mode = os.getenv("INFRASTRUCTURE_MODE", "on_premise").lower()
+    variable = (
+        "LANGGRAPH_CHECKPOINT_REDIS_URI_CLOUD"
+        if mode == "cloud"
+        else "LANGGRAPH_CHECKPOINT_REDIS_URI_ONPREM"
+    )
+    connection_string = os.getenv(variable) or os.getenv("REDIS_URI")
+    if not connection_string:
+        raise ValueError(f"{variable} is required for Redis checkpoints.")
+    if os.getenv(
+        "DEPLOYMENT_ENVIRONMENT"
+    ) == "production" and not connection_string.startswith("rediss://"):
+        raise ValueError("Production Redis checkpoints require TLS (rediss://).")
+    return connection_string
+
+
 def _encrypted_serializer():
     if not os.getenv("LANGGRAPH_AES_KEY"):
         raise ValueError("LANGGRAPH_AES_KEY must be supplied by Key Vault or Vault.")
@@ -43,8 +60,10 @@ def _encrypted_serializer():
 
 @contextmanager
 def open_checkpointer() -> Iterator[object]:
-    """Yield an encrypted PostgreSQL checkpointer or explicit test memory saver."""
-    backend = os.getenv("LANGGRAPH_CHECKPOINTER", "postgres").lower()
+    """Yield Redis in cloud, PostgreSQL on-prem, or explicit test memory."""
+    mode = os.getenv("INFRASTRUCTURE_MODE", "on_premise").lower()
+    default_backend = "redis" if mode == "cloud" else "postgres"
+    backend = os.getenv("LANGGRAPH_CHECKPOINTER", default_backend).lower()
     if backend == "memory":
         if os.getenv("DEPLOYMENT_ENVIRONMENT") == "production":
             raise ValueError("In-memory checkpointing is forbidden in production.")
@@ -53,7 +72,21 @@ def open_checkpointer() -> Iterator[object]:
         yield InMemorySaver()
         return
     if backend != "postgres":
-        raise ValueError("LANGGRAPH_CHECKPOINTER must be 'postgres' or 'memory'.")
+        if backend != "redis":
+            raise ValueError(
+                "LANGGRAPH_CHECKPOINTER must be 'postgres', 'redis' or 'memory'."
+            )
+        from langgraph.checkpoint.redis import RedisSaver
+
+        with RedisSaver.from_conn_string(
+            _redis_connection_string(),
+            ttl={
+                "default_ttl": float(os.getenv("CHECKPOINT_TTL_MINUTES", "1440")),
+                "refresh_on_read": False,
+            },
+        ) as saver:
+            yield saver
+        return
     import psycopg
     from langgraph.checkpoint.postgres import PostgresSaver
     from psycopg.rows import dict_row
@@ -70,6 +103,18 @@ def open_checkpointer() -> Iterator[object]:
 
 def initialize_checkpoint_schema() -> None:
     """Run checkpoint migrations as a deployment job, never at request startup."""
+    backend = os.getenv(
+        "LANGGRAPH_CHECKPOINTER",
+        "redis"
+        if os.getenv("INFRASTRUCTURE_MODE", "on_premise").lower() == "cloud"
+        else "postgres",
+    ).lower()
+    if backend == "redis":
+        from langgraph.checkpoint.redis import RedisSaver
+
+        with RedisSaver.from_conn_string(_redis_connection_string()) as saver:
+            saver.setup()
+        return
     import psycopg
     from langgraph.checkpoint.postgres import PostgresSaver
     from psycopg.rows import dict_row

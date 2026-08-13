@@ -135,7 +135,9 @@ class RateLimitedEmbeddings(Embeddings):
                     f"Embedding batch {batch_number}/{total_batches} "
                     f"({len(batch)} inputs)."
                 )
-            vectors.extend(self._call_with_retry(self._embeddings.embed_documents, batch))
+            vectors.extend(
+                self._call_with_retry(self._embeddings.embed_documents, batch)
+            )
 
         return vectors
 

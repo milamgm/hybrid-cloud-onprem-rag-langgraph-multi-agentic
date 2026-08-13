@@ -86,21 +86,26 @@ class PrivacyMiddleware:
     def _sanitize_presidio(self, text: str, language: str) -> PrivacyResult:
         analyzer = os.environ["PRESIDIO_ANALYZER_URL"].rstrip("/")
         anonymizer = os.environ["PRESIDIO_ANONYMIZER_URL"].rstrip("/")
-        findings = _post_json(f"{analyzer}/analyze", {"text": text, "language": language}, {})
+        findings = _post_json(
+            f"{analyzer}/analyze", {"text": text, "language": language}, {}
+        )
         entities = tuple(sorted({item["entity_type"] for item in findings}))
         if not findings:
             return PrivacyResult(text)
         redacted = _post_json(
             f"{anonymizer}/anonymize",
-            {"text": text, "analyzer_results": findings, "anonymizers": {"DEFAULT": {"type": "replace", "new_value": "<PII>"}}},
+            {
+                "text": text,
+                "analyzer_results": findings,
+                "anonymizers": {"DEFAULT": {"type": "replace", "new_value": "<PII>"}},
+            },
             {},
         )
         return PrivacyResult(redacted["text"], entities)
 
     def _sanitize_azure(self, text: str, language: str) -> PrivacyResult:
-        endpoint = (
-            os.getenv("AZURE_LANGUAGE_ENDPOINT")
-            or os.getenv("AZURE_FOUNDRY_ENDPOINT")
+        endpoint = os.getenv("AZURE_LANGUAGE_ENDPOINT") or os.getenv(
+            "AZURE_FOUNDRY_ENDPOINT"
         )
         key = os.getenv("AZURE_LANGUAGE_KEY") or os.getenv("AZURE_FOUNDRY_API_KEY")
         if not endpoint or not key:
@@ -114,9 +119,17 @@ class PrivacyMiddleware:
         endpoint = endpoint.removesuffix("/openai/v1").rstrip("/")
         response = _post_json(
             f"{endpoint}/language/:analyze-text?api-version=2024-11-01",
-            {"kind": "PiiEntityRecognition", "parameters": {"modelVersion": "latest"}, "analysisInput": {"documents": [{"id": "1", "language": language, "text": text}]}},
+            {
+                "kind": "PiiEntityRecognition",
+                "parameters": {"modelVersion": "latest"},
+                "analysisInput": {
+                    "documents": [{"id": "1", "language": language, "text": text}]
+                },
+            },
             {"Ocp-Apim-Subscription-Key": key},
         )
         document = response["results"]["documents"][0]
-        entities = tuple(sorted({item["category"] for item in document.get("entities", [])}))
+        entities = tuple(
+            sorted({item["category"] for item in document.get("entities", [])})
+        )
         return PrivacyResult(document.get("redactedText", text), entities)

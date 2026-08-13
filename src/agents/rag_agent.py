@@ -39,6 +39,16 @@ class RAGAgent:
             if self._memory
             else {}
         )
+        recalled_memories = (
+            [
+                record.memory_text
+                for record in self._memory.recall(
+                    tenant_id, subject_id, question, limit=3
+                )
+            ]
+            if self._memory
+            else []
+        )
         return self._graph.invoke(
             {
                 "messages": [HumanMessage(content=question)],
@@ -49,6 +59,7 @@ class RAGAgent:
                 "roles": roles,
                 "data_classification": data_classification,
                 "presentation_preferences": preferences,
+                "long_term_memories": recalled_memories,
                 "security_events": [],
                 "governance_event_ids": [],
             },

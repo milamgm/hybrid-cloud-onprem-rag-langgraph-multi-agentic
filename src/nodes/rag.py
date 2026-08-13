@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import suppress
 from dataclasses import dataclass
+from inspect import signature
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
+from src.audit.events import AuditService
 from src.governance.evidence import GovernanceService
 from src.memory.cache import ContextCache, ContextUnavailable
 from src.rag.generator import NO_ANSWER, Generator
 from src.security.injection import InjectionViolation, PromptInjectionMiddleware
 from src.security.output_validation import OutputValidationMiddleware
-from src.state.schema import AgentState, CitationReference
+from src.state.schema import (
+    SUMMARY_KEEP_MESSAGES,
+    SUMMARY_TRIGGER_MESSAGES,
+    AgentState,
+    CitationReference,
+    context_messages,
+    estimate_message_tokens,
+)
 
 BLOCKED_RESPONSE = "I can't provide a response to that request."
 
@@ -28,6 +38,8 @@ class RAGDependencies:
     injection: PromptInjectionMiddleware
     output_validation: OutputValidationMiddleware
     governance: GovernanceService
+    audit: AuditService | None = None
+    summarizer: Any = None
 
 
 def _question(state: AgentState) -> str:
@@ -63,7 +75,54 @@ def _blocked(control: str, reason: str) -> dict:
 def build_rag_nodes(dependencies: RAGDependencies) -> dict[str, Any]:
     """Return stateless node functions closed over explicit infrastructure."""
 
+    if dependencies.audit is not None:
+        audit = dependencies.audit
+    elif os.getenv("DEPLOYMENT_ENVIRONMENT") == "production":
+        audit = AuditService.from_environment()
+    else:
+        audit = AuditService()
+
+    def manage_context(state: AgentState) -> dict:
+        """Summarize old turns and trim the active buffer before every run."""
+        messages = state["messages"]
+        active = context_messages(messages)
+        non_system = [message for message in messages if message.type != "system"]
+        threshold_reached = len(non_system) > SUMMARY_TRIGGER_MESSAGES or sum(
+            estimate_message_tokens(message) for message in messages
+        ) > int(os.getenv("SUMMARY_TRIGGER_TOKENS", "1800"))
+        if not threshold_reached:
+            return {}
+
+        keep_ids = {message.id for message in active[-SUMMARY_KEEP_MESSAGES:]}
+        old_messages = [
+            message
+            for message in non_system
+            if message.id not in keep_ids and message.id is not None
+        ]
+        updates: dict[str, Any] = {
+            "messages": [RemoveMessage(id=message.id) for message in old_messages]
+        }
+        summarizer = dependencies.summarizer
+        if summarizer is None and hasattr(dependencies.generator, "summarize"):
+            summarizer = dependencies.generator
+        if summarizer is not None and old_messages:
+            updates["conversation_summary"] = summarizer.summarize(
+                old_messages, state.get("conversation_summary")
+            )
+        return updates
+
     def guard_input(state: AgentState) -> dict:
+        audit.record(
+            "prompt.received",
+            tenant_id=state["tenant_id"],
+            subject_id=state["subject_id"],
+            thread_id=state["thread_id"],
+            request_id=state["request_id"],
+            payload={
+                "prompt": _question(state),
+                "long_term_memory_count": len(state.get("long_term_memories", [])),
+            },
+        )
         try:
             dependencies.injection.enforce(_question(state))
         except InjectionViolation:
@@ -89,6 +148,17 @@ def build_rag_nodes(dependencies: RAGDependencies) -> dict[str, Any]:
             }
             for marker, document in enumerate(documents, 1)
         ]
+        audit.record(
+            "retrieval.completed",
+            tenant_id=state["tenant_id"],
+            subject_id=state["subject_id"],
+            thread_id=state["thread_id"],
+            request_id=state["request_id"],
+            payload={
+                "document_count": len(documents),
+                "sources": [citation["source"] for citation in citations],
+            },
+        )
         return {
             "retrieval_handle": handle,
             "citations": citations,
@@ -112,10 +182,22 @@ def build_rag_nodes(dependencies: RAGDependencies) -> dict[str, Any]:
             documents = _documents(state, dependencies.context_cache)
         except ContextUnavailable:
             return _blocked("ephemeral_context", "expired_before_generation")
-        answer = dependencies.generator.generate(
-            _question(state),
-            documents,
-            presentation_preferences=state.get("presentation_preferences", {}),
+        kwargs = {"presentation_preferences": state.get("presentation_preferences", {})}
+        parameters = signature(dependencies.generator.generate).parameters
+        if "conversation_summary" in parameters:
+            kwargs["conversation_summary"] = state.get("conversation_summary")
+        if "history" in parameters:
+            kwargs["history"] = state["messages"][:-1]
+        if "long_term_memories" in parameters:
+            kwargs["long_term_memories"] = state.get("long_term_memories", [])
+        answer = dependencies.generator.generate(_question(state), documents, **kwargs)
+        audit.record(
+            "response.generated",
+            tenant_id=state["tenant_id"],
+            subject_id=state["subject_id"],
+            thread_id=state["thread_id"],
+            request_id=state["request_id"],
+            payload={"response": answer.text},
         )
         return {"response_text": answer.text, "status": "generated"}
 
@@ -151,6 +233,18 @@ def build_rag_nodes(dependencies: RAGDependencies) -> dict[str, Any]:
             reason_code=reason_code,
             correlation_id=state["request_id"],
         )
+        audit.record(
+            "policy.decision",
+            tenant_id=state["tenant_id"],
+            subject_id=state["subject_id"],
+            thread_id=state["thread_id"],
+            request_id=state["request_id"],
+            payload={
+                "decision": decision,
+                "reason_code": reason_code,
+                "governance_event_id": event.event_id,
+            },
+        )
         return {
             "status": "completed" if decision == "allow" else "blocked",
             "governance_event_ids": [event.event_id],
@@ -168,6 +262,7 @@ def build_rag_nodes(dependencies: RAGDependencies) -> dict[str, Any]:
 
     return {
         "guard_input": guard_input,
+        "manage_context": manage_context,
         "retrieve": retrieve,
         "guard_retrieval": guard_retrieval,
         "generate": generate,

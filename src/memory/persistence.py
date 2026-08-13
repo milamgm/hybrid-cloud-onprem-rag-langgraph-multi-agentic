@@ -33,8 +33,10 @@ def _embed_memory(texts: Sequence[str]) -> list[list[float]]:
 
 @contextmanager
 def open_memory_store() -> Iterator[object]:
-    """Yield PostgreSQL/pgvector memory; in-memory is explicit test-only."""
-    backend = os.getenv("LONG_TERM_MEMORY_BACKEND", "postgres").lower()
+    """Yield the configured cross-thread store; memory is explicit test-only."""
+    mode = os.getenv("INFRASTRUCTURE_MODE", "on_premise").lower()
+    default_backend = "cosmos" if mode == "cloud" else "postgres"
+    backend = os.getenv("LONG_TERM_MEMORY_BACKEND", default_backend).lower()
     if backend == "memory":
         if os.getenv("DEPLOYMENT_ENVIRONMENT") == "production":
             raise ValueError("In-memory long-term memory is forbidden in production.")
@@ -42,8 +44,15 @@ def open_memory_store() -> Iterator[object]:
 
         yield InMemoryStore()
         return
+    if backend == "cosmos":
+        from src.memory.cosmos import CosmosStore
+
+        yield CosmosStore.from_environment()
+        return
     if backend != "postgres":
-        raise ValueError("LONG_TERM_MEMORY_BACKEND must be 'postgres' or 'memory'.")
+        raise ValueError(
+            "LONG_TERM_MEMORY_BACKEND must be 'postgres', 'cosmos' or 'memory'."
+        )
 
     from langgraph.store.postgres import PostgresStore
 
@@ -58,6 +67,15 @@ def open_memory_store() -> Iterator[object]:
 
 def initialize_memory_schema() -> None:
     """Run BaseStore/pgvector migrations from a controlled deployment job."""
+    backend = os.getenv(
+        "LONG_TERM_MEMORY_BACKEND",
+        "cosmos"
+        if os.getenv("INFRASTRUCTURE_MODE", "on_premise").lower() == "cloud"
+        else "postgres",
+    ).lower()
+    if backend == "cosmos":
+        # Cosmos database/container creation is owned by the Azure deployment.
+        return
     from langgraph.store.postgres import PostgresStore
 
     from src.config.config import VECTOR_SIZE

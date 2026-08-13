@@ -5,10 +5,10 @@ not treat LangGraph state, a cache and long-term memory as interchangeable.
 
 | Plane | Purpose | Authoritative system | Retention |
 |---|---|---|---|
-| Short-term execution state | Resume one bounded workflow/thread | Encrypted LangGraph PostgreSQL checkpointer | Policy-defined; delete by scoped thread ID |
+| Short-term execution state | Resume one bounded workflow/thread | Encrypted LangGraph PostgreSQL (on-prem) or Redis checkpointer (cloud) | TTL plus delete by scoped thread ID |
 | Ephemeral RAG context | Carry retrieved document bodies between nodes | Redis TTL cache (non-authoritative) | 30–3600 seconds and explicit end-of-run deletion |
-| Governed long-term memory | Approved facts/preferences across threads | LangGraph PostgreSQL `BaseStore` + pgvector | Per-record expiry, erasure and append-only versions |
-| Governance evidence | Decisions and control evidence | Existing evidence ledger + Azure Monitor/SIEM | Governance policy; never mixed with user memory |
+| Governed long-term memory | Approved facts/preferences across threads | PostgreSQL + pgvector (on-prem) or Cosmos DB serverless (cloud) | Per-record expiry, erasure and append-only versions |
+| Governance evidence | Decisions and audit references | Event Hubs -> immutable Blob/SIEM, independent from state | Governance policy; never mixed with user memory |
 
 Redis is not written through to PostgreSQL. The systems contain different data:
 Redis holds transient retrieved chunks; the checkpointer holds bounded execution
@@ -20,9 +20,10 @@ The application contracts stay identical in both modes.
 
 | Capability | Azure cloud | On-premises |
 |---|---|---|
-| Checkpoints | Azure Database for PostgreSQL, private endpoint and TLS | PostgreSQL HA cluster, TLS and dedicated role |
+| Checkpoints | Azure Managed Redis, encrypted and TTL-bound | PostgreSQL HA cluster, TLS and dedicated role |
 | Ephemeral context | Azure Managed Redis, private endpoint and TLS | Redis Enterprise or Redis HA, ACLs and TLS |
-| Long-term memory | Azure Database for PostgreSQL with pgvector | PostgreSQL with pgvector |
+| Long-term memory | Azure Cosmos DB serverless (JSON namespaces; vector adapter) | PostgreSQL with pgvector |
+| Audit transport/archive | Basic Event Hubs + Standard_LRS Blob WORM | Kafka/RabbitMQ + immutable SIEM/WORM |
 | Keys | Azure Key Vault workload identity | HashiCorp Vault federated workload identity |
 
 Use separate databases and least-privilege roles for checkpoints and long-term
@@ -35,7 +36,9 @@ regional placement according to the data classification and residency policy.
   request correlation and data classification. Caller thread IDs are hashed
   with tenant and subject scope before reaching the checkpointer.
 - Checkpoint payloads use LangGraph's AES encrypted serializer and cap message
-  history. Retrieved document bodies never enter `AgentState`.
+  history. The first graph node preserves system instructions, summarizes old
+  turns above the configured threshold and trims the active token budget.
+  Retrieved document bodies never enter `AgentState`.
 - Redis handles are opaque, tenant/thread-bound, classification-allowlisted and
   fail closed on expiry or scope mismatch. Context is deleted after evidence is
   recorded, including blocked executions. Confidential and restricted content
@@ -47,7 +50,8 @@ regional placement according to the data classification and residency policy.
   `MemoryManager.commit` after policy/consent approval.
 - Direct prompt attacks, retrieved-document attacks and invalid output are
   deterministic graph gates. Governance evidence stores references and
-  decisions, not prompt/document bodies.
+  decisions, not prompt/document bodies. Audit delivery is buffered and
+  independent, so expiring a checkpoint cannot erase the audit trail.
 
 ## Deployment lifecycle
 
@@ -73,8 +77,14 @@ with open_checkpointer() as checkpointer, open_memory_store() as store:
     graph = build_rag_graph(dependencies, checkpointer=checkpointer)
 ```
 
-The composition root must place `context_cache` in `RAGDependencies`; the
-example above omits construction of the other existing security dependencies.
+The composition root must place `context_cache` and, in production, an
+`AuditService.from_environment()` sink in `RAGDependencies`; the example above
+omits construction of the other existing security dependencies.
+
+For the inexpensive Azure development profile, run
+`infrastructure/azure/memory-plane/deploy.sh` and set
+`LANGGRAPH_CHECKPOINTER=redis`, `LONG_TERM_MEMORY_BACKEND=cosmos` and
+`AUDIT_BACKEND=eventhub`.
 
 Run a scheduled retention job that enumerates subjects from the authoritative
 identity/data catalog and calls `MemoryManager.purge_expired` for each memory

@@ -28,7 +28,8 @@ def build_rag_graph(dependencies: RAGDependencies, *, checkpointer: Any = None):
     builder = StateGraph(AgentState, input_schema=AgentInput, output_schema=AgentOutput)
     for name, node in nodes.items():
         builder.add_node(name, node)
-    builder.add_edge(START, "guard_input")
+    builder.add_edge(START, "manage_context")
+    builder.add_edge("manage_context", "guard_input")
     builder.add_conditional_edges("guard_input", _after_guard)
     builder.add_conditional_edges("retrieve", _after_retrieve)
     builder.add_conditional_edges("guard_retrieval", _after_retrieval_guard)

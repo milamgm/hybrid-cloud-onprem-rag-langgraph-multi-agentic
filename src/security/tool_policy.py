@@ -61,7 +61,9 @@ class ToolAuthorizationMiddleware:
         """Return a permitted decision or stop the proposed tool invocation."""
         decision = self.decide(call)
         if not decision.allowed:
-            raise ToolAuthorizationDenied(decision.reason or "Tool call denied by policy.")
+            raise ToolAuthorizationDenied(
+                decision.reason or "Tool call denied by policy."
+            )
         if decision.requires_approval and not call.approval_id:
             raise ToolApprovalRequired(
                 decision.reason or "Human approval is required before this tool call."
@@ -99,5 +101,7 @@ class ToolAuthorizationMiddleware:
         if call.tool_name == "search_web" and "tool.web.search" not in call.roles:
             return ToolDecision(False, reason="Missing tool.web.search role.")
         if call.requested_limit is not None and call.requested_limit > 5:
-            return ToolDecision(False, reason="Requested limit exceeds the policy maximum.")
+            return ToolDecision(
+                False, reason="Requested limit exceeds the policy maximum."
+            )
         return ToolDecision(True)

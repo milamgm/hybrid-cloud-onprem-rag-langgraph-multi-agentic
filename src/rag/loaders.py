@@ -81,7 +81,9 @@ def _load_pdf_docling(path: Path) -> DoclingDocument:
 
     converter = DocumentConverter(
         format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=_build_pipeline_options()),
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=_build_pipeline_options()
+            ),
         },
     )
     return converter.convert(str(path)).document

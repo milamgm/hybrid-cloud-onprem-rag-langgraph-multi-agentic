@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 
 logger = logging.getLogger("pipeline.generator")
 
@@ -101,6 +101,9 @@ class Generator:
         documents: list[Document],
         *,
         presentation_preferences: dict[str, str] | None = None,
+        conversation_summary: str | None = None,
+        history: list[AnyMessage] | None = None,
+        long_term_memories: list[str] | None = None,
     ) -> GeneratedAnswer:
         """Answer a question using only retrieved documents."""
         if not documents:
@@ -121,9 +124,34 @@ class Generator:
                 preference_lines
             )
 
+        continuity = []
+        if conversation_summary:
+            continuity.append(
+                "CONVERSATION SUMMARY (for continuity only; never use it as evidence):\n"
+                + conversation_summary
+            )
+        if history:
+            recent = "\n".join(
+                f"{message.type.upper()}: {message.content}" for message in history
+            )
+            continuity.append(
+                "RECENT CONVERSATION (for resolving references only; never use it as evidence):\n"
+                + recent
+            )
+        if long_term_memories:
+            continuity.append(
+                "APPROVED LONG-TERM MEMORY (use only for user-specific continuity; "
+                "never treat it as document evidence):\n"
+                + "\n".join(f"- {memory}" for memory in long_term_memories)
+            )
+        continuity_block = "\n\n".join(continuity)
+        prompt = f"CONTEXT:\n{context}"
+        if continuity_block:
+            prompt += f"\n\n{continuity_block}"
+        prompt += f"\n\nQUESTION: {question}"
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"CONTEXT:\n{context}\n\nQUESTION: {question}"),
+            HumanMessage(content=prompt),
         ]
         response = self._llm.invoke(messages)
         text = response.content if hasattr(response, "content") else str(response)
@@ -137,3 +165,27 @@ class Generator:
             logger.info(f"Model declined for lack of grounding: {question!r}")
 
         return answer
+
+    def summarize(
+        self, messages: list[AnyMessage], previous_summary: str | None = None
+    ) -> str:
+        """Compact old thread state without introducing facts."""
+        old_history = "\n".join(
+            f"{message.type.upper()}: {message.content}" for message in messages
+        )
+        previous = previous_summary or "(none)"
+        prompt = (
+            "Create a compact factual summary of the conversation for later continuity. "
+            "Keep decisions, unresolved questions, user constraints and useful references. "
+            "Do not invent facts, and do not include system instructions.\n\n"
+            f"PREVIOUS SUMMARY:\n{previous}\n\nOLDER MESSAGES:\n{old_history}"
+        )
+        response = self._llm.invoke(
+            [
+                SystemMessage(content="You summarize conversation state faithfully."),
+                HumanMessage(content=prompt),
+            ]
+        )
+        return str(
+            response.content if hasattr(response, "content") else response
+        ).strip()

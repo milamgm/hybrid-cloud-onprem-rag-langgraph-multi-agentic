@@ -244,7 +244,9 @@ class HybridIndexer:
         for doc in documents:
             doc.metadata.setdefault(
                 "chunk_id",
-                stable_chunk_id(doc.metadata.get("source", "unknown"), doc.page_content),
+                stable_chunk_id(
+                    doc.metadata.get("source", "unknown"), doc.page_content
+                ),
             )
 
         return index(

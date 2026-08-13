@@ -109,7 +109,9 @@ class PromptInjectionMiddleware:
         return InjectionResult(
             user_prompt_attack=blocked(user_prompt),
             document_attacks=tuple(
-                index for index, document in enumerate(documents, 1) if blocked(document)
+                index
+                for index, document in enumerate(documents, 1)
+                if blocked(document)
             ),
         )
 

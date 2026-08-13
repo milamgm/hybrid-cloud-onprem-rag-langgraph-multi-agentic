@@ -116,9 +116,7 @@ AZURE_APIM_SUBSCRIPTION_KEY = os.getenv("AZURE_APIM_SUBSCRIPTION_KEY")
 # On-premise: LM Studio during local development (default port 1234); vLLM or
 # NVIDIA NIM in production. All expose OpenAI Chat Completions, so switching
 # only changes these variables and the LiteLLM upstream configuration.
-ONPREM_CHAT_BASE_URL = os.getenv(
-    "ONPREM_CHAT_BASE_URL", "http://127.0.0.1:1234/v1"
-)
+ONPREM_CHAT_BASE_URL = os.getenv("ONPREM_CHAT_BASE_URL", "http://127.0.0.1:1234/v1")
 ONPREM_CHAT_MODEL = os.getenv("ONPREM_CHAT_MODEL", "ministral-3-3b-instruct-2512")
 # Self-hosted servers ignore the key, but the OpenAI client requires one.
 ONPREM_CHAT_API_KEY = os.getenv("ONPREM_CHAT_API_KEY", "not-needed")
