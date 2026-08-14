@@ -38,7 +38,7 @@ class MockXGBoostModel:
             alert_id=f"alert-{sample.transaction_id}",
             transaction_id=sample.transaction_id,
             tenant_id=sample.tenant_id,
-            subject_id=sample.subject_id,
+            customer_id=sample.customer_id,
             risk_score=score,
             severity=severity,
             model_version=self.model_version,

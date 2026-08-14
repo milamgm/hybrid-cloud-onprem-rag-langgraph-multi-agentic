@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from langchain_core.messages import HumanMessage
 
+from src.graph.thread_identity import checkpoint_thread_id
 from src.memory.store import MemoryManager
 from src.state.schema import AgentOutput, DataClassification
 
@@ -87,5 +87,4 @@ class RAGAgent:
     @staticmethod
     def _checkpoint_thread_id(tenant_id: str, subject_id: str, thread_id: str) -> str:
         """Prevent caller-controlled IDs from colliding across identity scopes."""
-        value = f"{tenant_id}\x00{subject_id}\x00{thread_id}".encode()
-        return hashlib.sha256(value).hexdigest()
+        return checkpoint_thread_id(tenant_id, subject_id, thread_id)

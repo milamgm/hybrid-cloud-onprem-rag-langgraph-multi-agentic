@@ -1660,6 +1660,25 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-azure-cosmosdb"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "azure-cosmos" },
+    { name = "azure-identity" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint" },
+    { name = "numpy" },
+    { name = "orjson" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/02/c26a02409459c31b2e05d46d46cb3fc4ed6eacbddb8968d3f0f266c38fe3/langchain_azure_cosmosdb-1.0.0.tar.gz", hash = "sha256:4b0dbffcd867ddc791fc4ec4dbc8e626d9910f0e41d4103f844313895e1f775e", size = 58800 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/17/7c1416bc70a9c73584cbdc0a45203831a650c9ec5f5108462337f769f8ff/langchain_azure_cosmosdb-1.0.0-py3-none-any.whl", hash = "sha256:31ad363091d51e01b8b95c6eca1a81e4c20f98f7dde062a9925f69eb5d0ba598", size = 70963 },
+]
+
+[[package]]
 name = "langchain-classic"
 version = "1.0.8"
 source = { registry = "https://pypi.org/simple" }
@@ -2759,6 +2778,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "langchain" },
     { name = "langchain-azure-ai" },
+    { name = "langchain-azure-cosmosdb" },
     { name = "langchain-classic" },
     { name = "langchain-huggingface" },
     { name = "langchain-openai" },
@@ -2803,6 +2823,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "langchain", specifier = ">=1.3.14" },
     { name = "langchain-azure-ai", specifier = ">=1.2.3" },
+    { name = "langchain-azure-cosmosdb", specifier = ">=1.0.0" },
     { name = "langchain-classic", specifier = ">=1.0.8" },
     { name = "langchain-huggingface", specifier = ">=1.2.2" },
     { name = "langchain-openai", specifier = ">=1.1.11" },

@@ -25,9 +25,10 @@ class EventTopologySettings:
     transactional_backend: TransactionalBackend
     reactive_backend: ReactiveBackend
     risk_alert_topic: str = "risk-alerts"
-    facts_requested_topic: str = "forensic-facts-requested"
-    facts_ready_topic: str = "forensic-facts-ready"
+    facts_requested_topic: str = "forensic-evidence-requested"
+    facts_ready_topic: str = "forensic-evidence-ready"
     approval_requested_topic: str = "forensic-approval-requested"
+    approval_granted_topic: str = "forensic-approval-granted"
     consumer_group: str = "forensic-investigator"
 
     @classmethod
@@ -64,9 +65,10 @@ class EventTopologySettings:
             transactional_backend=configured_transactional,
             reactive_backend=configured_reactive,
             risk_alert_topic=os.getenv("EVENT_RISK_ALERT_TOPIC", "risk-alerts"),
-            facts_requested_topic=os.getenv("EVENT_FACTS_REQUESTED_TOPIC", "forensic-facts-requested"),
-            facts_ready_topic=os.getenv("EVENT_FACTS_READY_TOPIC", "forensic-facts-ready"),
+            facts_requested_topic=os.getenv("EVENT_EVIDENCE_REQUESTED_TOPIC", os.getenv("EVENT_FACTS_REQUESTED_TOPIC", "forensic-evidence-requested")),
+            facts_ready_topic=os.getenv("EVENT_EVIDENCE_READY_TOPIC", os.getenv("EVENT_FACTS_READY_TOPIC", "forensic-evidence-ready")),
             approval_requested_topic=os.getenv("EVENT_APPROVAL_REQUESTED_TOPIC", "forensic-approval-requested"),
+            approval_granted_topic=os.getenv("EVENT_APPROVAL_GRANTED_TOPIC", "forensic-approval-granted"),
             consumer_group=os.getenv("EVENT_CONSUMER_GROUP", "forensic-investigator"),
         )
 
@@ -80,5 +82,6 @@ class EventTopologySettings:
             "facts_requested_topic": self.facts_requested_topic,
             "facts_ready_topic": self.facts_ready_topic,
             "approval_requested_topic": self.approval_requested_topic,
+            "approval_granted_topic": self.approval_granted_topic,
             "consumer_group": self.consumer_group,
         }

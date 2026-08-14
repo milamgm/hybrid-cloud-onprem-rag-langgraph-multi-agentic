@@ -108,32 +108,45 @@ checks as release gates.
 The transaction-risk path is implemented around versioned Pydantic contracts
 and broker-neutral ports in `src/events`. A mock XGBoost publisher emits a
 `risk.transaction.alert.v1` event asynchronously. The alert consumer validates
-the envelope, claims its idempotency key, injects the alert into the initial
-LangGraph state, and acknowledges the source message only after the graph has
-published `forensic.investigation.facts_requested.v1`.
+the envelope, claims its idempotency key, opens a LangGraph case, and
+acknowledges the source message only after the graph has published an evidence
+collection request. It does **not** notify a human yet.
 
 The stages are deliberately separate:
 
 ```text
-XGBoost -> risk alert stream -> alert consumer -> LangGraph start
+XGBoost -> risk alert stream -> case intake -> LangGraph case start
                                       |
                                       v
-                         facts requested event
+                     evidence collection requested
                                       |
-                           data reader consumer
+         read-only core/AML/CRM gateway + governed policy RAG
                                       |
-                         facts ready event
+                         validated evidence ready
                                       |
-                         reasoning graph stage
+                  reasoning -> cited case report -> review event
                                       |
-                         human approval requested
+                   LangGraph interrupt / analyst work queue
+                                      |
+                                      v
+                         approval granted/rejected event
+                                      |
+                                      v
+                         execution order requested (approved only)
 ```
 
-No component emits an execution order. A future approval service must consume
-the approval request, authenticate an authorised human decision, and publish a
-new approval-granted event before a separate execution service can create an
-order. This prevents a model or reasoning retry from becoming a financial side
-effect.
+The evidence worker is the only component that talks to banking data sources.
+It uses repository-owned named operations with tenant, customer and transaction
+parameters, a read-only service account and database row-level security. The
+LLM has neither database credentials nor a raw-SQL tool: it reasons only over a
+bounded `CaseEvidenceBundle`. Policy RAG is likewise a curated internal corpus
+and returns cited snippets/references, not internet search results.
+
+The graph emits a versioned approval-granted event after the external approval
+service authenticates an authorised human decision, and emits an
+execution-order command only for an approved decision. Separate consumers must
+enforce their idempotency keys. This keeps a model or reasoning retry from
+becoming a financial side effect.
 
 ## Deployment bindings
 
@@ -154,3 +167,43 @@ groups, and checkpoint stores remain deployment concerns.
 Production consumers must use manual acknowledgement/checkpointing after the
 side effect, a durable idempotency ledger keyed by event id, bounded retries,
 and a dead-letter path. The in-memory bus is only for tests and local demos.
+
+## Human-in-the-loop brake
+
+The forensic graph now requires a checkpointer and pauses in the
+`human_approval` node with LangGraph's dynamic `interrupt()` **after** it has
+published the analyst work-queue event containing the structured case report.
+The interrupt payload is JSON-safe and contains the approval id, report and
+evidence references, risk score, finding codes, and proposed idempotency key;
+it does not contain unrestricted checkpoint
+contents. The external control plane calls
+`HumanApprovalService.resume(...)` with the same public `thread_id`. The
+service derives a tenant/case-scoped checkpoint key, verifies the approver role
+and approval id, and resumes using `Command(resume=...)`. Customer identity and
+reviewer identity are deliberately not checkpoint-key inputs: a reviewer must
+be able to decide a case about another customer.
+
+The graph publishes `forensic.execution.order_requested.v1` only after an
+approved decision. A separate executor remains responsible for applying the
+financial side effect and must enforce the same idempotency key. Rejection
+ends the graph without publishing an execution command.
+
+For async APIs and workers use `open_async_checkpointer()` with
+`AsyncPostgresSaver` on PostgreSQL, `AsyncRedisSaver` on Azure Managed Redis /
+Redis Stack, or the official `CosmosDBSaver` integration. PostgreSQL and
+Cosmos checkpoints use the configured encrypted serializer; Cosmos can use
+Microsoft Entra managed identity when its key is blank. Cosmos database and
+container provisioning belongs in IaC and uses the `/partition_key` container
+partition key. Redis checkpoint indices must be initialized before serving;
+PostgreSQL migrations remain a deployment step. Azure Redis should use Managed
+Redis where applicable, TLS and Private Link; on-premise Redis must provide the
+RedisJSON/RediSearch capabilities required by the current Redis checkpointer.
+The synchronous helper intentionally rejects the Cosmos backend so callers do
+not silently lose application-level checkpoint encryption.
+
+`src/hitl/api.py` provides an optional FastAPI router. The same service can be
+called from an Azure Container Apps worker or Celery task, keeping HTTP,
+queueing and graph execution separate. LangSmith Studio can inspect threads and
+interrupts when the graph is deployed through the LangGraph/Agent Server API;
+on-premise tracing is available through the optional Langfuse callback without
+placing trace payloads in the checkpoint state.
