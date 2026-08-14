@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from src.memory.store import MemoryManager
-from src.state.schema import DataClassification
+from src.state.schema import AgentOutput, DataClassification
 
 
 class RAGAgent:
@@ -49,7 +49,7 @@ class RAGAgent:
             if self._memory
             else []
         )
-        return self._graph.invoke(
+        raw_result = self._graph.invoke(
             {
                 "messages": [HumanMessage(content=question)],
                 "request_id": request_id,
@@ -60,8 +60,6 @@ class RAGAgent:
                 "data_classification": data_classification,
                 "presentation_preferences": preferences,
                 "long_term_memories": recalled_memories,
-                "security_events": [],
-                "governance_event_ids": [],
             },
             {
                 "configurable": {
@@ -71,6 +69,11 @@ class RAGAgent:
                 }
             },
         )
+        # LangGraph intentionally returns a mapping even when its state/output
+        # schemas are Pydantic models.  Validate and serialize the public
+        # projection here so callers never receive an unvalidated checkpoint
+        # shape or nested Pydantic instances.
+        return AgentOutput.model_validate(raw_result).model_dump(mode="python")
 
     def delete_thread(self, *, tenant_id: str, subject_id: str, thread_id: str) -> None:
         """Delete durable checkpoints for an exact tenant/subject thread."""

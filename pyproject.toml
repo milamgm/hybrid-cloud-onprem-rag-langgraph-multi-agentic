@@ -28,6 +28,7 @@ dependencies = [
     "nemoguardrails[nvidia]>=0.22.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
+    "pydantic>=2.13.4",
     "psycopg[binary]>=3.3.4",
     "pycryptodome>=3.23.0",
     "redis>=7.1.0",
