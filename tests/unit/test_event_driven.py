@@ -134,6 +134,17 @@ def test_topology_defaults_are_mode_specific(monkeypatch) -> None:
     assert onprem.reactive_backend == "nats"
 
 
+def test_memory_transport_is_forbidden_in_production(monkeypatch) -> None:
+    monkeypatch.setenv("INFRASTRUCTURE_MODE", "memory")
+    monkeypatch.setenv("DEPLOYMENT_ENVIRONMENT", "production")
+    try:
+        EventTopologySettings.from_env()
+    except ValueError as exc:
+        assert "forbidden in production" in str(exc)
+    else:
+        raise AssertionError("production must fail closed on memory transports")
+
+
 def test_invalid_event_is_dead_lettered_and_not_acknowledged_as_success() -> None:
     async def scenario() -> None:
         bus = InMemoryEventBus()

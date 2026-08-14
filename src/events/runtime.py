@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from src.events.consumers import (
@@ -53,6 +54,11 @@ def build_forensic_runtime(
     before using more than one process.
     """
 
+    if ledger is None and (
+        settings.infrastructure_mode != "memory"
+        and os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower() == "production"
+    ):
+        raise ValueError("production runtime requires a durable EventLedger")
     event_ledger = ledger or InMemoryEventLedger()
     graph = build_forensic_graph(
         ForensicGraphDependencies(

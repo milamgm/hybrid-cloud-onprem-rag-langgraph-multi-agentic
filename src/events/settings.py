@@ -54,6 +54,10 @@ class EventTopologySettings:
             raise ValueError(f"unsupported EVENT_TRANSACTIONAL_BACKEND: {configured_transactional}")
         if configured_reactive not in valid_reactive:
             raise ValueError(f"unsupported EVENT_REACTIVE_BACKEND: {configured_reactive}")
+        if os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower() == "production" and (
+            "memory" in {configured_stream, configured_transactional, configured_reactive}
+        ):
+            raise ValueError("memory event transports are forbidden in production")
         return cls(
             infrastructure_mode=mode,
             stream_backend=configured_stream,
