@@ -103,3 +103,54 @@ options and fail closed when `DEPLOYMENT_ENVIRONMENT=production`. Production
 PostgreSQL URLs must explicitly set `sslmode`; production Redis must use
 `rediss://`. Run restore tests, tenant-isolation tests and retention evidence
 checks as release gates.
+# Event-driven forensic investigation
+
+The transaction-risk path is implemented around versioned Pydantic contracts
+and broker-neutral ports in `src/events`. A mock XGBoost publisher emits a
+`risk.transaction.alert.v1` event asynchronously. The alert consumer validates
+the envelope, claims its idempotency key, injects the alert into the initial
+LangGraph state, and acknowledges the source message only after the graph has
+published `forensic.investigation.facts_requested.v1`.
+
+The stages are deliberately separate:
+
+```text
+XGBoost -> risk alert stream -> alert consumer -> LangGraph start
+                                      |
+                                      v
+                         facts requested event
+                                      |
+                           data reader consumer
+                                      |
+                         facts ready event
+                                      |
+                         reasoning graph stage
+                                      |
+                         human approval requested
+```
+
+No component emits an execution order. A future approval service must consume
+the approval request, authenticate an authorised human decision, and publish a
+new approval-granted event before a separate execution service can create an
+order. This prevents a model or reasoning retry from becoming a financial side
+effect.
+
+## Deployment bindings
+
+`EventTopologySettings.from_env()` chooses the topology from
+`INFRASTRUCTURE_MODE`, with explicit per-layer overrides:
+
+| Layer | Cloud default | On-prem default |
+| --- | --- | --- |
+| Risk-alert stream | Azure Event Hubs | Apache Kafka |
+| Transactional event delivery | Azure Service Bus | RabbitMQ |
+| Reactive routing | Azure Event Grid | NATS |
+
+AWS SQS/EventBridge, IBM MQ, and Knative are also represented by thin publisher
+bindings in `src/events/adapters.py`. SDK clients are injected at the
+composition root, so credentials, TLS, retry policy, partition keys, consumer
+groups, and checkpoint stores remain deployment concerns.
+
+Production consumers must use manual acknowledgement/checkpointing after the
+side effect, a durable idempotency ledger keyed by event id, bounded retries,
+and a dead-letter path. The in-memory bus is only for tests and local demos.
