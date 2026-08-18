@@ -1,6 +1,6 @@
 # Azure memory-plane deployment
 
-`deploy.sh` provisions the cheapest practical development profile for the
+`deploy.sh` provisions the development profile for the
 architecture:
 
 - short-term checkpoints: Azure Managed Redis `Balanced_B0`, with a TTL;

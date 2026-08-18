@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Cheapest development profile for the two memory planes and audit transport.
+# Development profile for the two memory planes and audit transport.
 # The resource group is intentionally shared so a test run can be removed as one unit.
 : "${AZURE_SUBSCRIPTION_ID:?Set AZURE_SUBSCRIPTION_ID before running az commands}"
 
