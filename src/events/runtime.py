@@ -6,6 +6,11 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from src.agents.forensic import (
+    ForensicInvestigationTeam,
+    ForensicReasoner,
+    ForensicToolGateways,
+)
 from src.audit.events import AuditService
 from src.events.consumers import (
     EvidenceReadyConsumer,
@@ -14,10 +19,23 @@ from src.events.consumers import (
 )
 from src.events.risk_model import MockXGBoostModel
 from src.events.settings import EventTopologySettings
-from src.events.transport import EventLedger, EventPublisher, InMemoryEventBus, InMemoryEventLedger
-from src.graph.forensic_graph import ForensicGraphDependencies, MockForensicReasoner, build_forensic_graph
+from src.events.transport import (
+    EventLedger,
+    EventPublisher,
+    InMemoryEventBus,
+    InMemoryEventLedger,
+)
+from src.forensics.evidence import (
+    CaseEvidenceCollector,
+    MockCoreBankingReadGateway,
+    MockPolicyRAGGateway,
+)
+from src.graph.forensic_graph import (
+    ForensicGraphDependencies,
+    MockForensicReasoner,
+    build_forensic_graph,
+)
 from src.hitl.service import HumanApprovalService
-from src.forensics.evidence import CaseEvidenceCollector, MockCoreBankingReadGateway, MockPolicyRAGGateway
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +47,7 @@ class EventBindings:
     reactive: EventPublisher
 
     @classmethod
-    def in_memory(cls, bus: InMemoryEventBus) -> "EventBindings":
+    def in_memory(cls, bus: InMemoryEventBus) -> EventBindings:
         return cls(stream=bus, transactional=bus, reactive=bus)
 
 
@@ -51,22 +69,52 @@ def build_forensic_runtime(
     ledger: EventLedger | None = None,
     checkpointer: Any = None,
     audit: AuditService | None = None,
+    evidence_collector: CaseEvidenceCollector | None = None,
+    agent_gateways: ForensicToolGateways | None = None,
+    reasoner: ForensicReasoner | None = None,
 ) -> ForensicRuntime:
     """Wire services without importing or constructing broker SDK clients.
 
-    Production callers create the appropriate adapter from
-    ``src.events.adapters`` and pass it in ``bindings``. The stateful ledger is
-    also a port in this first slice; replace it with a durable unique-key store
-    before using more than one process.
+    Production callers create the appropriate broker bindings, evidence
+    collector and scoped agent gateways at the composition root.  The stateful
+    ledger is also a port in this first slice; replace it with a durable
+    unique-key store before using more than one process.
     """
 
     if ledger is None and (
         settings.infrastructure_mode != "memory"
-        and os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower() == "production"
+        and os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower()
+        == "production"
     ):
         raise ValueError("production runtime requires a durable EventLedger")
     if checkpointer is None:
         raise ValueError("forensic runtime requires a LangGraph checkpointer")
+    production = (
+        os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower()
+        == "production"
+    )
+    if evidence_collector is None:
+        if production:
+            raise ValueError(
+                "production forensic runtime requires an evidence_collector"
+            )
+        evidence_collector = CaseEvidenceCollector(
+            core_banking=MockCoreBankingReadGateway(),
+            policy_rag=MockPolicyRAGGateway(),
+        )
+    if reasoner is None:
+        if production:
+            if agent_gateways is None:
+                raise ValueError(
+                    "production forensic runtime requires scoped agent_gateways"
+                )
+            from src.config.config import get_chat_model
+
+            reasoner = ForensicInvestigationTeam(
+                llm=get_chat_model(), gateways=agent_gateways
+            )
+        else:
+            reasoner = MockForensicReasoner()
     event_ledger = ledger or InMemoryEventLedger()
     graph = build_forensic_graph(
         ForensicGraphDependencies(
@@ -74,7 +122,7 @@ def build_forensic_runtime(
             review_publisher=bindings.reactive,
             approval_granted_publisher=bindings.reactive,
             execution_publisher=bindings.transactional,
-            reasoner=MockForensicReasoner(),
+            reasoner=reasoner,
         ),
         checkpointer=checkpointer,
     )
@@ -84,10 +132,7 @@ def build_forensic_runtime(
         graph=graph,
         alert_consumer=RiskAlertConsumer(graph=graph, ledger=event_ledger),
         evidence_requested_consumer=EvidenceRequestedConsumer(
-            collector=CaseEvidenceCollector(
-                core_banking=MockCoreBankingReadGateway(),
-                policy_rag=MockPolicyRAGGateway(),
-            ),
+            collector=evidence_collector,
             publisher=bindings.transactional,
             ledger=event_ledger,
         ),

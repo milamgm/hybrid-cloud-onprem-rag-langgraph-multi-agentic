@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from langgraph.types import Command
 from pydantic import ValidationError
 
 from src.events.contracts import (
@@ -96,7 +97,23 @@ class EvidenceReadyConsumer(BaseEventConsumer):
             await delivery.dead_letter(f"invalid evidence-ready event: {exc}"); return {"status": "dead_lettered"}
         if not await self._claim(delivery): await delivery.ack(); return {"status": "duplicate"}
         try:
-            result = await self._graph.ainvoke({"alert": ready.alert, "evidence": ready.evidence, "investigation_id": ready.investigation_id, "request_id": ready.request_id, "stage": "evidence_ready"}, config=case_graph_config(tenant_id=ready.alert.tenant_id, case_id=ready.investigation_id, request_id=ready.request_id))
+            result = await self._graph.ainvoke(
+                Command(
+                    update={
+                        "alert": ready.alert,
+                        "evidence": ready.evidence,
+                        "investigation_id": ready.investigation_id,
+                        "request_id": ready.request_id,
+                        "stage": "evidence_ready",
+                    },
+                    goto="prepare_case_for_review",
+                ),
+                config=case_graph_config(
+                    tenant_id=ready.alert.tenant_id,
+                    case_id=ready.investigation_id,
+                    request_id=ready.request_id,
+                ),
+            )
         except Exception as exc:
             await self._ledger.release(delivery.event.id); await self._retry_or_dead_letter(delivery, f"case reasoning failed: {exc}"); return {"status": "retrying"}
         await self._ledger.complete(delivery.event.id); await delivery.ack(); return result

@@ -385,6 +385,65 @@ wheels = [
 ]
 
 [[package]]
+name = "azure-functions"
+version = "1.25.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "werkzeug" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6f/eb/745418bd7ae135068a88dcd2e0b3cefd526068a7bbe55cc29d5fb5919080/azure_functions-1.25.0.tar.gz", hash = "sha256:3c737657110b6cfd14e6871515ab66c377b9ceecaca8dcbf5b391d2433424756", size = 143938, upload-time = "2026-08-05T19:12:50.176Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/21/9374de0e429e7a45090c097111fbbcdea019e726b252cbb35428a816ed1c/azure_functions-1.25.0-py3-none-any.whl", hash = "sha256:0d01e52c0871a01a65911bc163a0dfd7f09725ba43cea17a09909cc5d298c1d2", size = 113831, upload-time = "2026-08-05T19:12:51.567Z" },
+]
+
+[[package]]
+name = "azure-functions"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "werkzeug" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/fe/76756c226321bdda7d42d42da4256dcc0c3200c38d2b710b85e376540a93/azure_functions-2.2.0.tar.gz", hash = "sha256:c1b498cf48beefe2271ebc454f1a4fb6f587bd97c116e412773854b4c66ad1dc", size = 166686, upload-time = "2026-07-06T19:39:42.934Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/8b/04b61f98fc24e87838339483d4374832caaf96ee09b86a551fe4e4efa6cf/azure_functions-2.2.0-py3-none-any.whl", hash = "sha256:7e73f2a3ce011cfff09eb8465ab5aeb3c61e86ffeadee209ff6ab65a5ef12f83", size = 123878, upload-time = "2026-07-06T19:39:44.374Z" },
+]
+
+[[package]]
+name = "azure-functions-durable"
+version = "1.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "azure-functions", version = "1.25.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "azure-functions", version = "2.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "furl" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/6b/b72e813b6b5bd3f9a4fa5282df69c00834e3a094efb9fe9fdd1213944ad6/azure_functions_durable-1.7.0.tar.gz", hash = "sha256:8ba754a44fa57fbb2c314d48fea38a3cf4b43919ff2f6df42ef42b7c8f4a8d52", size = 207994, upload-time = "2026-07-30T22:16:05.769Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/b8/d4c080510e79176bc85054c472eb2badcea92b16bea90a6bebc771db53f0/azure_functions_durable-1.7.0-py3-none-any.whl", hash = "sha256:0c492d4dc6ce4099d618afd59db6e96e50b2edd8e4e8ad05faf4e24090fc8d09", size = 165516, upload-time = "2026-07-30T22:16:07.007Z" },
+]
+
+[[package]]
 name = "azure-identity"
 version = "1.25.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1188,6 +1247,19 @@ wheels = [
 ]
 
 [[package]]
+name = "furl"
+version = "2.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orderedmultidict" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/53/e4/203a76fa2ef46cdb0a618295cc115220cbb874229d4d8721068335eb87f0/furl-2.1.4.tar.gz", hash = "sha256:877657501266c929269739fb5f5980534a41abd6bbabcb367c136d1d3b2a6015", size = 57526, upload-time = "2025-03-09T05:36:21.175Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/8c/dce3b1b7593858eba995b2dfdb833f872c7f863e3da92aab7128a6b11af4/furl-2.1.4-py2.py3-none-any.whl", hash = "sha256:da34d0b34e53ffe2d2e6851a7085a05d96922b5b578620a37377ff1dbeeb11c8", size = 27550, upload-time = "2025-03-09T05:36:19.928Z" },
+]
+
+[[package]]
 name = "gitdb"
 version = "4.0.12"
 source = { registry = "https://pypi.org/simple" }
@@ -1673,9 +1745,9 @@ dependencies = [
     { name = "numpy" },
     { name = "orjson" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bd/02/c26a02409459c31b2e05d46d46cb3fc4ed6eacbddb8968d3f0f266c38fe3/langchain_azure_cosmosdb-1.0.0.tar.gz", hash = "sha256:4b0dbffcd867ddc791fc4ec4dbc8e626d9910f0e41d4103f844313895e1f775e", size = 58800 }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/02/c26a02409459c31b2e05d46d46cb3fc4ed6eacbddb8968d3f0f266c38fe3/langchain_azure_cosmosdb-1.0.0.tar.gz", hash = "sha256:4b0dbffcd867ddc791fc4ec4dbc8e626d9910f0e41d4103f844313895e1f775e", size = 58757, upload-time = "2026-04-28T01:22:47.853Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/17/7c1416bc70a9c73584cbdc0a45203831a650c9ec5f5108462337f769f8ff/langchain_azure_cosmosdb-1.0.0-py3-none-any.whl", hash = "sha256:31ad363091d51e01b8b95c6eca1a81e4c20f98f7dde062a9925f69eb5d0ba598", size = 70963 },
+    { url = "https://files.pythonhosted.org/packages/90/17/7c1416bc70a9c73584cbdc0a45203831a650c9ec5f5108462337f769f8ff/langchain_azure_cosmosdb-1.0.0-py3-none-any.whl", hash = "sha256:31ad363091d51e01b8b95c6eca1a81e4c20f98f7dde062a9925f69eb5d0ba598", size = 69281, upload-time = "2026-04-28T01:22:46.679Z" },
 ]
 
 [[package]]
@@ -2769,6 +2841,9 @@ source = { virtual = "." }
 dependencies = [
     { name = "azure-cosmos" },
     { name = "azure-eventhub" },
+    { name = "azure-functions", version = "1.25.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "azure-functions", version = "2.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "azure-functions-durable" },
     { name = "azure-identity" },
     { name = "azure-keyvault-secrets" },
     { name = "azure-monitor-opentelemetry" },
@@ -2791,9 +2866,9 @@ dependencies = [
     { name = "nemoguardrails" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
-    { name = "pydantic" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pycryptodome" },
+    { name = "pydantic" },
     { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "redis" },
@@ -2814,6 +2889,8 @@ dev = [
 requires-dist = [
     { name = "azure-cosmos", specifier = ">=4.9.0" },
     { name = "azure-eventhub", specifier = ">=5.15.0" },
+    { name = "azure-functions", specifier = ">=1.24.0" },
+    { name = "azure-functions-durable", specifier = ">=1.2.2" },
     { name = "azure-identity", specifier = ">=1.25.2" },
     { name = "azure-keyvault-secrets", specifier = ">=4.10.0" },
     { name = "azure-monitor-opentelemetry", specifier = ">=1.8.1" },
@@ -2836,9 +2913,9 @@ requires-dist = [
     { name = "nemoguardrails", extras = ["nvidia"], specifier = ">=0.22.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.39.1" },
     { name = "opentelemetry-sdk", specifier = ">=1.39.1" },
-    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
     { name = "pycryptodome", specifier = ">=3.23.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pymupdf", specifier = ">=1.28.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "redis", specifier = ">=7.1.0" },
@@ -3189,6 +3266,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/1b/1029a805fd7242f7dfce91633b244c3b14a94d703232878f71e01ce862b1/opentelemetry_util_http-0.64b0.tar.gz", hash = "sha256:8a86a220dbfc56d736f47f1e5c4e7932a21fcf69052312e1bcf166444dc79322", size = 11102, upload-time = "2026-06-24T15:19:48.974Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1c/c7/5f8ec5b30546f2dc22cd5fc5759bce2ab5be6e89a2e710a405ac9ef64ed3/opentelemetry_util_http-0.64b0-py3-none-any.whl", hash = "sha256:c1e5350d25507c1afcd6076cf9ac062485a0a4f79cd9971366996fd3056bacdb", size = 8204, upload-time = "2026-06-24T15:19:09.02Z" },
+]
+
+[[package]]
+name = "orderedmultidict"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/62/61ad51f6c19d495970230a7747147ce7ed3c3a63c2af4ebfdb1f6d738703/orderedmultidict-1.0.2.tar.gz", hash = "sha256:16a7ae8432e02cc987d2d6d5af2df5938258f87c870675c73ee77a0920e6f4a6", size = 13973, upload-time = "2025-11-18T08:00:42.649Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/6c/d8a02ffb24876b5f51fbd781f479fc6525a518553a4196bd0433dae9ff8e/orderedmultidict-1.0.2-py2.py3-none-any.whl", hash = "sha256:ab5044c1dca4226ae4c28524cfc5cc4c939f0b49e978efa46a6ad6468049f79b", size = 11897, upload-time = "2025-11-18T08:00:41.44Z" },
 ]
 
 [[package]]
@@ -5434,6 +5523,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/86/eb/20b6cdf273913d0ad05a6a14aed4b9a85591c18a987a3d47f20fa13dcc47/websockets-15.0.1-cp313-cp313-win32.whl", hash = "sha256:ba9e56e8ceeeedb2e080147ba85ffcd5cd0711b89576b83784d8605a7df455fa", size = 176393, upload-time = "2025-03-05T20:02:53.814Z" },
     { url = "https://files.pythonhosted.org/packages/1b/6c/c65773d6cab416a64d191d6ee8a8b1c68a09970ea6909d16965d26bfed1e/websockets-15.0.1-cp313-cp313-win_amd64.whl", hash = "sha256:e09473f095a819042ecb2ab9465aee615bd9c2028e4ef7d933600a8401c79561", size = 176837, upload-time = "2025-03-05T20:02:55.237Z" },
     { url = "https://files.pythonhosted.org/packages/fa/a8/5b41e0da817d64113292ab1f8247140aac61cbf6cfd085d6a0fa77f4984f/websockets-15.0.1-py3-none-any.whl", hash = "sha256:f7a866fbc1e97b5c617ee4116daaa09b722101d4a3c170c787450ba409f9736f", size = 169743, upload-time = "2025-03-05T20:03:39.41Z" },
+]
+
+[[package]]
+name = "werkzeug"
+version = "3.1.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markupsafe" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/b2/381be8cfdee792dd117872481b6e378f85c957dd7c5bca38897b08f765fd/werkzeug-3.1.8.tar.gz", hash = "sha256:9bad61a4268dac112f1c5cd4630a56ede601b6ed420300677a869083d70a4c44", size = 875852, upload-time = "2026-04-02T18:49:14.268Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/8c/2e650f2afeb7ee576912636c23ddb621c91ac6a98e66dc8d29c3c69446e1/werkzeug-3.1.8-py3-none-any.whl", hash = "sha256:63a77fb8892bf28ebc3178683445222aa500e48ebad5ec77b0ad80f8726b1f50", size = 226459, upload-time = "2026-04-02T18:49:12.72Z" },
 ]
 
 [[package]]

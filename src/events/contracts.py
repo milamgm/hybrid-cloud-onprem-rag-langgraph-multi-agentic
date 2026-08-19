@@ -69,6 +69,17 @@ class CoreBankingEvidence(_EventModel):
     attributes: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=64)
 
 
+class ReadOnlyEvidence(_EventModel):
+    """Bounded result from an allowlisted read tool other than core banking."""
+
+    evidence_id: str = Field(min_length=1, max_length=128)
+    tenant_id: str = Field(min_length=1, max_length=128)
+    customer_id: str = Field(min_length=1, max_length=128)
+    source_system: str = Field(min_length=1, max_length=128)
+    observed_at: datetime
+    attributes: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=64)
+
+
 class PolicyCitation(_EventModel):
     """Provenance-only result from the curated policy/RAG corpus."""
 
@@ -95,6 +106,35 @@ class ForensicFinding(_EventModel):
     disposition: Literal["clear", "monitor", "escalate"]
 
 
+AgentName = Literal[
+    "transaction_analyst",
+    "customer_risk_analyst",
+    "network_analyst",
+    "policy_compliance_analyst",
+    "case_lead",
+]
+
+
+class AgentAssessment(_EventModel):
+    """Structured, attributable output from one bounded forensic agent."""
+
+    agent_name: AgentName
+    summary: str = Field(min_length=1, max_length=4_000)
+    findings: tuple[ForensicFinding, ...] = Field(min_length=1, max_length=16)
+    evidence_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=64)
+    policy_citation_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    information_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+
+
+class ForensicAnalysis(_EventModel):
+    """The case-lead decision package assembled from specialist assessments."""
+
+    summary: str = Field(min_length=1, max_length=4_000)
+    findings: tuple[ForensicFinding, ...] = Field(min_length=1, max_length=64)
+    recommended_action: Literal["hold", "review", "clear"]
+    agent_assessments: tuple[AgentAssessment, ...] = Field(min_length=1, max_length=8)
+
+
 class InvestigationReport(_EventModel):
     """Human-reviewable case artefact; claims must link to evidence references."""
 
@@ -106,6 +146,7 @@ class InvestigationReport(_EventModel):
     policy_citation_ids: tuple[str, ...] = Field(min_length=1, max_length=8)
     recommended_action: Literal["hold", "review", "clear"]
     created_at: datetime
+    agent_assessments: tuple[AgentAssessment, ...] = Field(default_factory=tuple)
 
 
 class EvidenceCollectionRequested(_EventModel):
