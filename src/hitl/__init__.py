@@ -2,9 +2,9 @@
 
 from src.hitl.models import (
     ApprovalDecision,
-    HumanApprovalPrompt,
-    HITLStatus,
     HITLResumeResult,
+    HITLStatus,
+    HumanApprovalPrompt,
 )
 
 __all__ = [

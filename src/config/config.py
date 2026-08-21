@@ -17,7 +17,10 @@ from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 from pydantic import SecretStr
 
+_environment_file = os.getenv("ONYX_ENV_FILE")
 load_dotenv()
+if _environment_file:
+    load_dotenv(_environment_file, override=True)
 
 logger = logging.getLogger("pipeline.config")
 
@@ -186,15 +189,32 @@ def _build_onprem_embeddings() -> Embeddings:
     import torch
     from langchain_huggingface import HuggingFaceEmbeddings
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    requested_device = os.getenv("ONPREM_EMBEDDING_DEVICE", "auto").lower()
+    if requested_device not in {"auto", "cpu", "cuda"}:
+        raise ValueError("ONPREM_EMBEDDING_DEVICE must be 'auto', 'cpu' or 'cuda'.")
+    device = (
+        "cuda"
+        if requested_device in {"auto", "cuda"} and torch.cuda.is_available()
+        else "cpu"
+    )
     if device == "cpu":
         logger.warning("No CUDA device detected; embedding on CPU will be slow.")
 
-    return HuggingFaceEmbeddings(
-        model_name="BAAI/bge-m3",
-        model_kwargs={"device": device},
-        encode_kwargs={"normalize_embeddings": True},
-    )
+    def build(selected_device: str) -> Embeddings:
+        return HuggingFaceEmbeddings(
+            model_name="BAAI/bge-m3",
+            model_kwargs={"device": selected_device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+
+    try:
+        return build(device)
+    except torch.OutOfMemoryError:
+        if requested_device != "auto" or device != "cuda":
+            raise
+        logger.warning("CUDA ran out of memory while loading bge-m3; retrying on CPU.")
+        torch.cuda.empty_cache()
+        return build("cpu")
 
 
 _embeddings: Embeddings | None = None

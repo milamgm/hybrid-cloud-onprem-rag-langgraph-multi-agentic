@@ -56,14 +56,21 @@ def create_hitl_router(
     router = APIRouter(prefix="/v1/hitl", tags=["human-approval"])
 
     @router.get("/threads/{thread_id}", response_model=HITLStatus)
-    async def get_status(thread_id: str, principal: HITLPrincipal = Depends(principal_dependency)):
+    async def get_status(
+        thread_id: str,
+        principal: HITLPrincipal = Depends(principal_dependency),  # noqa: B008
+    ):
         return await service.status(
             thread_id=thread_id,
             tenant_id=principal.tenant_id,
         )
 
     @router.post("/threads/{thread_id}/resume", response_model=HITLResumeResult)
-    async def resume(thread_id: str, submission: ApprovalSubmission, principal: HITLPrincipal = Depends(principal_dependency)):
+    async def resume(
+        thread_id: str,
+        submission: ApprovalSubmission,
+        principal: HITLPrincipal = Depends(principal_dependency),  # noqa: B008
+    ):
         try:
             return await service.resume(
                 thread_id=thread_id,

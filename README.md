@@ -1,4 +1,47 @@
-Deployment Workflows
+# Onyx
+
+## Ejecutar la aplicación
+
+Onyx incluye una interfaz Streamlit que compone el grafo RAG completo. Los dos
+perfiles usan tablas distintas porque sus embeddings tienen dimensiones
+incompatibles (Azure 3072, BGE-M3 1024).
+
+### On-premise de desarrollo
+
+```bash
+cp .env.onprem.example .env.onprem
+docker compose --env-file .env.onprem up -d
+# Inicia el servidor local de LM Studio en 127.0.0.1:1234.
+ONYX_ENV_FILE=.env.onprem uv run python main.py check
+ONYX_ENV_FILE=.env.onprem uv run python -m scripts.ingest data/raw
+ONYX_ENV_FILE=.env.onprem uv run python -m streamlit run main.py
+```
+
+La primera ingestión descarga BGE-M3 y puede tardar. El perfil inicial usa CPU,
+PyMuPDF, no carga el reranker y conserva los checkpoints sólo durante el proceso.
+
+### Cloud desde el equipo local
+
+```bash
+cp .env.cloud.example .env.cloud
+# Completa PostgreSQL y Foundry; añade Content Safety/Language para managed.
+ONYX_ENV_FILE=.env.cloud uv run python main.py check
+ONYX_ENV_FILE=.env.cloud uv run python -m scripts.ingest data/raw
+ONYX_ENV_FILE=.env.cloud uv run python -m streamlit run main.py
+```
+
+El perfil cloud de desarrollo consume Azure AI Foundry y Azure PostgreSQL, pero
+mantiene el contexto y checkpoints en el proceso local. Para producción deben
+configurarse Redis/Cosmos, identidades administradas, auditoría Event Hubs y los
+controles descritos más abajo.
+
+`RAG_SECURITY_PROFILE=development` sólo está permitido fuera de producción y
+no debe utilizarse con datos reales. `managed` activa Azure Content Safety y
+Azure AI Language en cloud o los NIM de NeMo on-premise. Si la región del
+recurso Foundry no ofrece PII, configura `AZURE_LANGUAGE_ENDPOINT` y
+`AZURE_LANGUAGE_KEY` con un recurso Language compatible.
+
+## Deployment Workflows
 
 Agentic Fraud Investigation Workflow
 

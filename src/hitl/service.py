@@ -117,7 +117,9 @@ class HumanApprovalService:
     ) -> HITLResumeResult:
         roles = tuple(approver_roles)
         if self._required_role not in roles:
-            raise HITLAuthorizationError("verified principal lacks the HITL approval role")
+            raise HITLAuthorizationError(
+                "verified principal lacks the HITL approval role"
+            )
         if decision not in {"approved", "rejected"}:
             raise ValueError("decision must be approved or rejected")
 
@@ -256,7 +258,7 @@ class HumanApprovalService:
                 self._graph.ainvoke(input_value, config=config),
                 timeout=self._resume_timeout_seconds,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise HITLResumeTimeout(
                 "graph resume exceeded the configured HITL timeout"
             ) from exc
@@ -284,7 +286,9 @@ def _interrupt_payloads(snapshot: Any) -> list[dict[str, object]]:
     raw = getattr(snapshot, "values", {}) or {}
     for item in raw.get("__interrupt__", ()) if isinstance(raw, Mapping) else ():
         value = getattr(item, "value", item)
-        payloads.append(dict(value) if isinstance(value, Mapping) else {"value": str(value)})
+        payloads.append(
+            dict(value) if isinstance(value, Mapping) else {"value": str(value)}
+        )
     return payloads
 
 

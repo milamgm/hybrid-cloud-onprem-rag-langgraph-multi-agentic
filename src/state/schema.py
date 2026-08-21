@@ -61,9 +61,7 @@ MAX_SECURITY_EVENTS = _bounded_env_int(
 MAX_GOVERNANCE_EVENT_IDS = _bounded_env_int(
     "SHORT_TERM_MAX_GOVERNANCE_EVENTS", 64, minimum=1, maximum=1024
 )
-MAX_CITATIONS = _bounded_env_int(
-    "MAX_RESPONSE_CITATIONS", 128, minimum=1, maximum=1024
-)
+MAX_CITATIONS = _bounded_env_int("MAX_RESPONSE_CITATIONS", 128, minimum=1, maximum=1024)
 MAX_MESSAGE_CONTENT_CHARS = _bounded_env_int(
     "SHORT_TERM_MAX_MESSAGE_CHARS", 20_000, minimum=256, maximum=1_000_000
 )
@@ -91,7 +89,9 @@ class _ValidatedModel(BaseModel):
 def _validate_identifier(value: str) -> str:
     """Reject ambiguous/control-bearing identity values without normalizing them."""
     if not value or value != value.strip():
-        raise ValueError("Identifiers must be non-empty and have no surrounding whitespace.")
+        raise ValueError(
+            "Identifiers must be non-empty and have no surrounding whitespace."
+        )
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
         raise ValueError("Identifiers must not contain control characters.")
     return value
@@ -195,7 +195,9 @@ def replace_citations(
     del left
     citations = [CitationReference.model_validate(item) for item in (right or [])]
     if len(citations) > MAX_CITATIONS:
-        raise ValueError(f"A response cannot contain more than {MAX_CITATIONS} citations.")
+        raise ValueError(
+            f"A response cannot contain more than {MAX_CITATIONS} citations."
+        )
     markers = [citation.marker for citation in citations]
     if len(markers) != len(set(markers)):
         raise ValueError("Citation markers must be unique within a response.")
@@ -271,8 +273,12 @@ class AgentInput(_ValidatedModel):
     thread_id: str = Field(min_length=1, max_length=256)
     roles: tuple[str, ...] = Field(min_length=1, max_length=32)
     data_classification: DataClassification
-    presentation_preferences: dict[str, str] = Field(default_factory=dict, max_length=32)
-    conversation_summary: str | None = Field(default=None, max_length=MAX_MESSAGE_CONTENT_CHARS)
+    presentation_preferences: dict[str, str] = Field(
+        default_factory=dict, max_length=32
+    )
+    conversation_summary: str | None = Field(
+        default=None, max_length=MAX_MESSAGE_CONTENT_CHARS
+    )
     long_term_memories: list[str] = Field(default_factory=list, max_length=32)
 
     @field_validator("request_id", "tenant_id", "subject_id", "thread_id")
@@ -295,14 +301,19 @@ class AgentInput(_ValidatedModel):
         cls, value: list[AnyMessage]
     ) -> list[AnyMessage]:
         messages = _validated_messages(value)
-        if not any(message.type == "human" and str(message.content).strip() for message in messages):
+        if not any(
+            message.type == "human" and str(message.content).strip()
+            for message in messages
+        ):
             raise ValueError("The workflow requires a non-empty human message.")
         return messages
 
     @field_validator("long_term_memories")
     @classmethod
     def memories_must_be_bounded(cls, value: list[str]) -> list[str]:
-        if any(not item.strip() or len(item) > MAX_MESSAGE_CONTENT_CHARS for item in value):
+        if any(
+            not item.strip() or len(item) > MAX_MESSAGE_CONTENT_CHARS for item in value
+        ):
             raise ValueError("Long-term memory entries must be non-empty and bounded.")
         return value
 
@@ -348,7 +359,9 @@ class AgentState(_ValidatedModel):
     thread_id: str = Field(default="", max_length=256)
     roles: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     data_classification: DataClassification = "public"
-    presentation_preferences: dict[str, str] = Field(default_factory=dict, max_length=32)
+    presentation_preferences: dict[str, str] = Field(
+        default_factory=dict, max_length=32
+    )
     conversation_summary: Annotated[str | None, replace_optional_text] = None
     long_term_memories: list[str] = Field(default_factory=list, max_length=32)
     retrieval_handle: Annotated[str | None, replace_optional_text] = None
@@ -370,6 +383,7 @@ class AgentState(_ValidatedModel):
         if value:
             return _validate_identifier(value)
         return value
+
 
 __all__ = [
     "AgentInput",

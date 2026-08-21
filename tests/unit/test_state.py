@@ -95,6 +95,12 @@ def test_reducers_validate_updates_and_enforce_lifecycle():
         reduce_status("generated", "received")
 
     with pytest.raises(ValueError, match="unique"):
-        replace_citations([], [{"marker": 1, "source": "handbook.pdf"}, {"marker": 1, "source": "other.pdf"}])
+        replace_citations(
+            [],
+            [
+                {"marker": 1, "source": "handbook.pdf"},
+                {"marker": 1, "source": "other.pdf"},
+            ],
+        )
     with pytest.raises(ValidationError):
         append_security_events([], [{"control": "guard", "outcome": "blocked"}])

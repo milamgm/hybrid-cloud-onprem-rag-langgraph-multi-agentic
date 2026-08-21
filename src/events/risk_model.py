@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from src.events.contracts import RISK_ALERT_TYPE, TransactionRiskAlert, TransactionSample, make_event
+from src.events.contracts import (
+    RISK_ALERT_TYPE,
+    TransactionRiskAlert,
+    TransactionSample,
+    make_event,
+)
 from src.events.transport import EventPublisher
 
 
@@ -25,7 +30,15 @@ class MockXGBoostModel:
             + min(sample.velocity_24h / 100, 0.25)
             + min(sample.geo_distance_km / 10_000, 0.25),
         )
-        severity = "critical" if score >= 0.85 else "high" if score >= 0.65 else "medium" if score >= 0.35 else "low"
+        severity = (
+            "critical"
+            if score >= 0.85
+            else "high"
+            if score >= 0.65
+            else "medium"
+            if score >= 0.35
+            else "low"
+        )
         signals = ["amount"] if sample.amount >= 50_000 else []
         if sample.velocity_24h >= 20:
             signals.append("velocity")
@@ -43,7 +56,7 @@ class MockXGBoostModel:
             severity=severity,
             model_version=self.model_version,
             signal_codes=tuple(signals),
-            occurred_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
         )
         event = make_event(
             event_type=RISK_ALERT_TYPE,

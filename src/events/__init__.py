@@ -13,10 +13,10 @@ from src.events.contracts import (
     ApprovalRequested,
     CaseEvidenceBundle,
     CoreBankingEvidence,
+    EventEnvelope,
     EvidenceCollectionRequested,
     EvidenceReady,
     ExecutionOrderRequested,
-    EventEnvelope,
     FactsReady,
     FactsRequested,
     HumanApprovalGranted,
@@ -26,7 +26,12 @@ from src.events.contracts import (
     make_event,
 )
 from src.events.settings import EventTopologySettings
-from src.events.transport import EventLedger, EventPublisher, InMemoryEventBus, InMemoryEventLedger
+from src.events.transport import (
+    EventLedger,
+    EventPublisher,
+    InMemoryEventBus,
+    InMemoryEventLedger,
+)
 
 __all__ = [
     "APPROVAL_REQUESTED_TYPE",

@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.events.contracts import EventEnvelope
-from src.events.transport import EventDelivery, EventSubscription
+from src.events.transport import EventDelivery
 
 
 def _payload(event: EventEnvelope[Any]) -> bytes:
@@ -25,7 +25,9 @@ class AzureEventHubsPublisher:
     def __init__(self, producer_client: Any) -> None:
         self._producer = producer_client
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         from azure.eventhub import EventData
 
         batch = await self._producer.create_batch(partition_key=key)
@@ -38,7 +40,9 @@ class KafkaPublisher:
         self._producer = producer
         self._topic = topic
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         await self._producer.send_and_wait(
             self._topic,
             value=_payload(event),
@@ -50,7 +54,9 @@ class AzureServiceBusPublisher:
     def __init__(self, sender: Any) -> None:
         self._sender = sender
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         from azure.servicebus import ServiceBusMessage
 
         arguments: dict[str, Any] = {
@@ -69,7 +75,9 @@ class RabbitMQPublisher:
         self._exchange = exchange
         self._routing_key = routing_key
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key
         from aio_pika import DeliveryMode, Message
 
@@ -90,7 +98,9 @@ class SqsPublisher:
     def __init__(self, send_message: Callable[..., Awaitable[Any]]) -> None:
         self._send_message = send_message
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         arguments: dict[str, Any] = {"MessageBody": _payload(event).decode()}
         if key:
             arguments["MessageDeduplicationId"] = event.id
@@ -101,11 +111,15 @@ class SqsPublisher:
 class EventBridgePublisher:
     """Binding around an injected AWS ``put_events`` callable."""
 
-    def __init__(self, put_events: Callable[..., Awaitable[Any]], event_bus_name: str) -> None:
+    def __init__(
+        self, put_events: Callable[..., Awaitable[Any]], event_bus_name: str
+    ) -> None:
         self._put_events = put_events
         self._event_bus_name = event_bus_name
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key
         detail = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
         await self._put_events(
@@ -129,7 +143,9 @@ class HttpEventPublisher:
         self._client = client
         self._endpoint = endpoint
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key
         response = await self._client.post(
             self._endpoint,
@@ -144,9 +160,13 @@ class NatsPublisher:
         self._jetstream = jetstream
         self._subject = subject
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key
-        await self._jetstream.publish(self._subject, _payload(event), headers={"Nats-Msg-Id": event.id})
+        await self._jetstream.publish(
+            self._subject, _payload(event), headers={"Nats-Msg-Id": event.id}
+        )
 
 
 class IbmMqPublisher:
@@ -155,9 +175,13 @@ class IbmMqPublisher:
     def __init__(self, put_message: Callable[..., Any]) -> None:
         self._put_message = put_message
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key
-        result = self._put_message(message_id=event.id, body=_payload(event), syncpoint=True)
+        result = self._put_message(
+            message_id=event.id, body=_payload(event), syncpoint=True
+        )
         if inspect.isawaitable(result):
             await result
 
@@ -201,7 +225,7 @@ class KafkaSubscription:
         self._dead_letter_handler = dead_letter_handler
         self._active = False
 
-    async def __aenter__(self) -> "KafkaSubscription":
+    async def __aenter__(self) -> KafkaSubscription:
         await self._consumer.start()
         self._active = True
         return self
@@ -210,7 +234,7 @@ class KafkaSubscription:
         self._active = False
         await self._consumer.stop()
 
-    def __aiter__(self) -> "KafkaSubscription":
+    def __aiter__(self) -> KafkaSubscription:
         return self
 
     async def __anext__(self) -> EventDelivery:
@@ -222,12 +246,16 @@ class KafkaSubscription:
         async def ack() -> None:
             from aiokafka import TopicPartition
 
-            await self._consumer.commit({TopicPartition(record.topic, record.partition): record.offset + 1})
+            await self._consumer.commit(
+                {TopicPartition(record.topic, record.partition): record.offset + 1}
+            )
 
         async def retry() -> None:
             from aiokafka import TopicPartition
 
-            self._consumer.seek(TopicPartition(record.topic, record.partition), record.offset)
+            self._consumer.seek(
+                TopicPartition(record.topic, record.partition), record.offset
+            )
 
         return _BrokerDelivery(
             event,
@@ -240,16 +268,20 @@ class KafkaSubscription:
 class AzureEventHubsSubscription:
     """Event Processor-compatible source; checkpoint is the acknowledgement."""
 
-    def __init__(self, consumer_client: Any, dead_letter_handler: DeadLetterHandler) -> None:
+    def __init__(
+        self, consumer_client: Any, dead_letter_handler: DeadLetterHandler
+    ) -> None:
         self._client = consumer_client
         self._dead_letter_handler = dead_letter_handler
         self._queue: asyncio.Queue[_BrokerDelivery] = asyncio.Queue()
         self._receive_task: asyncio.Task[Any] | None = None
         self._active = False
 
-    async def __aenter__(self) -> "AzureEventHubsSubscription":
+    async def __aenter__(self) -> AzureEventHubsSubscription:
         async def on_event(partition_context: Any, event: Any) -> None:
-            envelope = EventEnvelope[dict[str, Any]].model_validate_json(event.body_as_str())
+            envelope = EventEnvelope[dict[str, Any]].model_validate_json(
+                event.body_as_str()
+            )
 
             async def ack() -> None:
                 await partition_context.update_checkpoint(event)
@@ -269,7 +301,9 @@ class AzureEventHubsSubscription:
             )
 
         self._active = True
-        self._receive_task = asyncio.create_task(self._client.receive(on_event=on_event))
+        self._receive_task = asyncio.create_task(
+            self._client.receive(on_event=on_event)
+        )
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
@@ -279,7 +313,7 @@ class AzureEventHubsSubscription:
             await asyncio.gather(self._receive_task, return_exceptions=True)
         await self._client.close()
 
-    def __aiter__(self) -> "AzureEventHubsSubscription":
+    def __aiter__(self) -> AzureEventHubsSubscription:
         return self
 
     async def __anext__(self) -> EventDelivery:

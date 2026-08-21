@@ -12,8 +12,12 @@ from typing import Literal
 
 InfrastructureMode = Literal["cloud", "onprem", "memory"]
 StreamBackend = Literal["azure_event_hubs", "kafka", "memory"]
-TransactionalBackend = Literal["azure_service_bus", "aws_sqs", "rabbitmq", "ibm_mq", "memory"]
-ReactiveBackend = Literal["azure_event_grid", "aws_eventbridge", "nats", "knative", "memory"]
+TransactionalBackend = Literal[
+    "azure_service_bus", "aws_sqs", "rabbitmq", "ibm_mq", "memory"
+]
+ReactiveBackend = Literal[
+    "azure_event_grid", "aws_eventbridge", "nats", "knative", "memory"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +36,7 @@ class EventTopologySettings:
     consumer_group: str = "forensic-investigator"
 
     @classmethod
-    def from_env(cls) -> "EventTopologySettings":
+    def from_env(cls) -> EventTopologySettings:
         mode = os.getenv("INFRASTRUCTURE_MODE", "onprem").strip().lower()
         if mode not in {"cloud", "onprem", "memory"}:
             raise ValueError("INFRASTRUCTURE_MODE must be cloud, onprem, or memory")
@@ -44,19 +48,42 @@ class EventTopologySettings:
         }
         stream, transactional, reactive = defaults[mode]
         configured_stream = os.getenv("EVENT_STREAM_BACKEND", "").strip() or stream
-        configured_transactional = os.getenv("EVENT_TRANSACTIONAL_BACKEND", "").strip() or transactional
-        configured_reactive = os.getenv("EVENT_REACTIVE_BACKEND", "").strip() or reactive
+        configured_transactional = (
+            os.getenv("EVENT_TRANSACTIONAL_BACKEND", "").strip() or transactional
+        )
+        configured_reactive = (
+            os.getenv("EVENT_REACTIVE_BACKEND", "").strip() or reactive
+        )
         valid_streams = {"azure_event_hubs", "kafka", "memory"}
-        valid_transactional = {"azure_service_bus", "aws_sqs", "rabbitmq", "ibm_mq", "memory"}
-        valid_reactive = {"azure_event_grid", "aws_eventbridge", "nats", "knative", "memory"}
+        valid_transactional = {
+            "azure_service_bus",
+            "aws_sqs",
+            "rabbitmq",
+            "ibm_mq",
+            "memory",
+        }
+        valid_reactive = {
+            "azure_event_grid",
+            "aws_eventbridge",
+            "nats",
+            "knative",
+            "memory",
+        }
         if configured_stream not in valid_streams:
             raise ValueError(f"unsupported EVENT_STREAM_BACKEND: {configured_stream}")
         if configured_transactional not in valid_transactional:
-            raise ValueError(f"unsupported EVENT_TRANSACTIONAL_BACKEND: {configured_transactional}")
+            raise ValueError(
+                f"unsupported EVENT_TRANSACTIONAL_BACKEND: {configured_transactional}"
+            )
         if configured_reactive not in valid_reactive:
-            raise ValueError(f"unsupported EVENT_REACTIVE_BACKEND: {configured_reactive}")
-        if os.getenv("DEPLOYMENT_ENVIRONMENT", "development").strip().lower() == "production" and (
-            "memory" in {configured_stream, configured_transactional, configured_reactive}
+            raise ValueError(
+                f"unsupported EVENT_REACTIVE_BACKEND: {configured_reactive}"
+            )
+        if os.getenv(
+            "DEPLOYMENT_ENVIRONMENT", "development"
+        ).strip().lower() == "production" and (
+            "memory"
+            in {configured_stream, configured_transactional, configured_reactive}
         ):
             raise ValueError("memory event transports are forbidden in production")
         return cls(
@@ -65,10 +92,20 @@ class EventTopologySettings:
             transactional_backend=configured_transactional,
             reactive_backend=configured_reactive,
             risk_alert_topic=os.getenv("EVENT_RISK_ALERT_TOPIC", "risk-alerts"),
-            facts_requested_topic=os.getenv("EVENT_EVIDENCE_REQUESTED_TOPIC", os.getenv("EVENT_FACTS_REQUESTED_TOPIC", "forensic-evidence-requested")),
-            facts_ready_topic=os.getenv("EVENT_EVIDENCE_READY_TOPIC", os.getenv("EVENT_FACTS_READY_TOPIC", "forensic-evidence-ready")),
-            approval_requested_topic=os.getenv("EVENT_APPROVAL_REQUESTED_TOPIC", "forensic-approval-requested"),
-            approval_granted_topic=os.getenv("EVENT_APPROVAL_GRANTED_TOPIC", "forensic-approval-granted"),
+            facts_requested_topic=os.getenv(
+                "EVENT_EVIDENCE_REQUESTED_TOPIC",
+                os.getenv("EVENT_FACTS_REQUESTED_TOPIC", "forensic-evidence-requested"),
+            ),
+            facts_ready_topic=os.getenv(
+                "EVENT_EVIDENCE_READY_TOPIC",
+                os.getenv("EVENT_FACTS_READY_TOPIC", "forensic-evidence-ready"),
+            ),
+            approval_requested_topic=os.getenv(
+                "EVENT_APPROVAL_REQUESTED_TOPIC", "forensic-approval-requested"
+            ),
+            approval_granted_topic=os.getenv(
+                "EVENT_APPROVAL_GRANTED_TOPIC", "forensic-approval-granted"
+            ),
             consumer_group=os.getenv("EVENT_CONSUMER_GROUP", "forensic-investigator"),
         )
 

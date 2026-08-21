@@ -7,7 +7,6 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from urllib.parse import parse_qs, urlparse
 
-
 _CHECKPOINT_ALLOWED_TYPES = (
     ("src.events.contracts", "ForensicFinding"),
     ("src.events.contracts", "CaseEvidenceBundle"),

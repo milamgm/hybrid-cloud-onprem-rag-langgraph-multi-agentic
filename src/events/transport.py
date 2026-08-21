@@ -10,7 +10,9 @@ from src.events.contracts import EventEnvelope
 
 
 class EventPublisher(Protocol):
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         """Publish an event durably according to the concrete transport policy."""
 
 
@@ -40,17 +42,13 @@ class EventDelivery(Protocol):
 
 
 class EventSubscription(Protocol):
-    async def __aenter__(self) -> "EventSubscription":
-        ...
+    async def __aenter__(self) -> EventSubscription: ...
 
-    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        ...
+    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None: ...
 
-    def __aiter__(self) -> "EventSubscription":
-        ...
+    def __aiter__(self) -> EventSubscription: ...
 
-    async def __anext__(self) -> EventDelivery:
-        ...
+    async def __anext__(self) -> EventDelivery: ...
 
 
 @dataclass(slots=True)
@@ -63,7 +61,7 @@ class DeadLetter:
 @dataclass(slots=True)
 class _InMemoryDelivery:
     event: EventEnvelope[Any]
-    _queue: asyncio.Queue["_InMemoryDelivery"]
+    _queue: asyncio.Queue[_InMemoryDelivery]
     _dead_letters: list[DeadLetter]
     delivery_attempt: int = 1
     acknowledged: bool = False
@@ -81,16 +79,18 @@ class _InMemoryDelivery:
 
 
 class _InMemorySubscription:
-    def __init__(self, bus: "InMemoryEventBus", event_type: str, group: str) -> None:
+    def __init__(self, bus: InMemoryEventBus, event_type: str, group: str) -> None:
         self._bus = bus
         self._event_type = event_type
         self._group = group
         self._queue: asyncio.Queue[_InMemoryDelivery] = asyncio.Queue()
         self._active = False
 
-    async def __aenter__(self) -> "_InMemorySubscription":
+    async def __aenter__(self) -> _InMemorySubscription:
         self._active = True
-        self._bus._subscriptions.setdefault((self._event_type, self._group), []).append(self._queue)
+        self._bus._subscriptions.setdefault((self._event_type, self._group), []).append(
+            self._queue
+        )
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
@@ -99,7 +99,7 @@ class _InMemorySubscription:
             queues.remove(self._queue)
         self._active = False
 
-    def __aiter__(self) -> "_InMemorySubscription":
+    def __aiter__(self) -> _InMemorySubscription:
         return self
 
     async def __anext__(self) -> _InMemoryDelivery:
@@ -112,14 +112,18 @@ class InMemoryEventBus:
     """Test/dev transport with explicit subscriptions and manual ack semantics."""
 
     def __init__(self) -> None:
-        self._subscriptions: dict[tuple[str, str], list[asyncio.Queue[_InMemoryDelivery]]] = {}
+        self._subscriptions: dict[
+            tuple[str, str], list[asyncio.Queue[_InMemoryDelivery]]
+        ] = {}
         self.dead_letters: list[DeadLetter] = []
         self.published: list[EventEnvelope[Any]] = []
 
     def subscribe(self, event_type: str, group: str) -> EventSubscription:
         return _InMemorySubscription(self, event_type, group)
 
-    async def publish(self, event: EventEnvelope[Any], *, key: str | None = None) -> None:
+    async def publish(
+        self, event: EventEnvelope[Any], *, key: str | None = None
+    ) -> None:
         del key  # Partition keys are applied by concrete broker bindings.
         self.published.append(event)
         for (event_type, _group), queues in self._subscriptions.items():

@@ -31,22 +31,32 @@ def graph_config(
         try:
             from langfuse.langchain import CallbackHandler
         except ImportError as exc:  # pragma: no cover - deployment dependency
-            raise RuntimeError("LANGFUSE_ENABLED requires the langfuse package") from exc
+            raise RuntimeError(
+                "LANGFUSE_ENABLED requires the langfuse package"
+            ) from exc
         config["callbacks"] = [CallbackHandler()]
     return config
 
 
-def case_graph_config(*, tenant_id: str, case_id: str, request_id: str | None = None) -> dict[str, Any]:
+def case_graph_config(
+    *, tenant_id: str, case_id: str, request_id: str | None = None
+) -> dict[str, Any]:
     """Config for the case graph; reviewer identity is authorization, not state scope."""
     config = {
         "configurable": {"thread_id": case_checkpoint_thread_id(tenant_id, case_id)},
-        "metadata": {"tenant_id": tenant_id, "public_thread_id": case_id, **({"request_id": request_id} if request_id else {})},
+        "metadata": {
+            "tenant_id": tenant_id,
+            "public_thread_id": case_id,
+            **({"request_id": request_id} if request_id else {}),
+        },
         "tags": ["forensic-investigation", "human-in-the-loop"],
     }
     if os.getenv("LANGFUSE_ENABLED", "false").strip().lower() == "true":
         try:
             from langfuse.langchain import CallbackHandler
         except ImportError as exc:  # pragma: no cover
-            raise RuntimeError("LANGFUSE_ENABLED requires the langfuse package") from exc
+            raise RuntimeError(
+                "LANGFUSE_ENABLED requires the langfuse package"
+            ) from exc
         config["callbacks"] = [CallbackHandler()]
     return config

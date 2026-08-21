@@ -7,8 +7,8 @@ not a secondary core-banking database.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Generic, Literal, TypeVar
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +27,9 @@ APPROVAL_REQUESTED_TYPE = CASE_REVIEW_REQUESTED_TYPE
 
 
 class _EventModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, protected_namespaces=())
+    model_config = ConfigDict(
+        extra="forbid", strict=True, validate_assignment=True, protected_namespaces=()
+    )
 
 
 class TransactionSample(_EventModel):
@@ -55,7 +57,9 @@ class TransactionRiskAlert(_EventModel):
     model_version: str = Field(min_length=1, max_length=64)
     signal_codes: tuple[str, ...] = Field(min_length=1, max_length=32)
     occurred_at: datetime
-    data_classification: Literal["internal", "confidential", "restricted"] = "restricted"
+    data_classification: Literal["internal", "confidential", "restricted"] = (
+        "restricted"
+    )
 
 
 class CoreBankingEvidence(_EventModel):
@@ -66,7 +70,9 @@ class CoreBankingEvidence(_EventModel):
     customer_id: str = Field(min_length=1, max_length=128)
     source_system: str = Field(min_length=1, max_length=128)
     observed_at: datetime
-    attributes: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=64)
+    attributes: dict[str, str | int | float | bool] = Field(
+        default_factory=dict, max_length=64
+    )
 
 
 class ReadOnlyEvidence(_EventModel):
@@ -77,7 +83,9 @@ class ReadOnlyEvidence(_EventModel):
     customer_id: str = Field(min_length=1, max_length=128)
     source_system: str = Field(min_length=1, max_length=128)
     observed_at: datetime
-    attributes: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=64)
+    attributes: dict[str, str | int | float | bool] = Field(
+        default_factory=dict, max_length=64
+    )
 
 
 class PolicyCitation(_EventModel):
@@ -192,10 +200,7 @@ FactsRequested = EvidenceCollectionRequested
 FactsReady = EvidenceReady
 TransactionFacts = CoreBankingEvidence
 
-PayloadT = TypeVar("PayloadT")
-
-
-class EventEnvelope(_EventModel, Generic[PayloadT]):
+class EventEnvelope[PayloadT](_EventModel):
     specversion: Literal["1.0"] = "1.0"
     id: str = Field(min_length=1, max_length=128)
     source: str = Field(min_length=1, max_length=256)
@@ -208,5 +213,21 @@ class EventEnvelope(_EventModel, Generic[PayloadT]):
     data: PayloadT
 
 
-def make_event(*, event_type: str, source: str, subject: str, data: PayloadT, traceparent: str | None = None, event_id: str | None = None) -> EventEnvelope[PayloadT]:
-    return EventEnvelope(id=event_id or str(uuid4()), source=source, type=event_type, subject=subject, time=datetime.now(timezone.utc), traceparent=traceparent, data=data)
+def make_event[PayloadT](
+    *,
+    event_type: str,
+    source: str,
+    subject: str,
+    data: PayloadT,
+    traceparent: str | None = None,
+    event_id: str | None = None,
+) -> EventEnvelope[PayloadT]:
+    return EventEnvelope(
+        id=event_id or str(uuid4()),
+        source=source,
+        type=event_type,
+        subject=subject,
+        time=datetime.now(UTC),
+        traceparent=traceparent,
+        data=data,
+    )

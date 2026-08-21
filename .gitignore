@@ -9,4 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+.env.cloud
+.env.onprem
+!.env.example
+!.env.cloud.example
+!.env.onprem.example
 !.env.example

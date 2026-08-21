@@ -60,7 +60,9 @@ class HITLStatus(_HITLModel):
 
 class HITLResumeResult(_HITLModel):
     thread_id: str = Field(min_length=1, max_length=256)
-    status: Literal["awaiting_human", "approved", "rejected", "execution_requested", "completed"]
+    status: Literal[
+        "awaiting_human", "approved", "rejected", "execution_requested", "completed"
+    ]
     approval_request_id: str
     state: dict[str, object] = Field(default_factory=dict)
     event_ids: tuple[str, ...] = ()
